@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>PokéScan uses the camera to read the card in front of you.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pick a photo of a card to identify it.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -66,9 +70,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>PokéScan uses the camera to read the card in front of you.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Pick a photo of a card to identify it.</string>
 </dict>
 </plist>

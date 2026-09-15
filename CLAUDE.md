@@ -26,7 +26,7 @@ notes below are from memory and may be slightly off.
 |---|---|
 | 1 Skeleton + manual lookup | Done, verified in browser |
 | 2 Local collection | Done, verified in browser (drift on IndexedDB) |
-| 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — simulator has no camera, so test via the photo-library path |
+| 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — needs the physical iPhone; see below |
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | Not started |
 
@@ -39,6 +39,22 @@ Xcode 27.0 licence accepted and first-launch components installed on
 fallback to the Command Line Tools for the next time an Xcode update re-arms
 the licence gate — when that happens, *every* flutter command exits 69,
 including `flutter build web`, and the fix is `sudo xcodebuild -license`.
+
+### The iOS simulator cannot run this app (verified 2026-09-15)
+
+ML Kit ships no arm64 simulator slice. On Apple Silicon, Xcode resolves that by
+building the whole app x86_64-only, and iOS 26+ simulators dropped x86_64, so
+the install fails with "This app needs to be updated by the developer to work on
+this version of iOS". It is not just OCR that is unavailable — the app will not
+launch in a simulator at all.
+
+So iOS testing means a physical device. That needs signing configured in Xcode
+(Apple ID → Personal Team on the Runner target), which needs the user. A free
+personal team signs for 7 days at a time.
+
+Build commands that do work without a device:
+- `flutter build ios --debug --no-codesign` — proves the native side compiles.
+- `tool/dev_web.sh` — the web loop, for anything that is not camera or OCR.
 
 ## Build order (phases — finish and run each before starting the next)
 
