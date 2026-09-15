@@ -197,11 +197,17 @@ class _EntryTile extends ConsumerWidget {
         padding: const EdgeInsets.only(right: 24),
         child: const Icon(Icons.delete_outline),
       ),
-      onDismissed: (_) {
-        ref.read(collectionRepositoryProvider).remove(entry.item.id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Removed ${c?.name ?? entry.item.cardId}')),
-        );
+      onDismissed: (_) async {
+        final repo = ref.read(collectionRepositoryProvider);
+        final messenger = ScaffoldMessenger.of(context);
+        final removed = await repo.removeRestorable(entry.item.id);
+        if (removed == null) return;
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(
+          content: Text('Removed ${c?.name ?? entry.item.cardId}'),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(label: 'Undo', onPressed: () => repo.restore(removed)),
+        ));
       },
       child: ListTile(
         leading: SizedBox(

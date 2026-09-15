@@ -120,6 +120,33 @@ class CollectionRepository {
 
   Future<void> remove(int id) => _db.collectionDao.deleteById(id);
 
+  /// Delete a row but hand back everything needed to put it back, so a
+  /// mistaken swipe is recoverable. The restored row keeps its original
+  /// `addedAt` rather than jumping to the top of "recently added".
+  Future<CollectionItem?> removeRestorable(int id) async {
+    final existing = await _db.collectionDao.getById(id);
+    if (existing == null) return null;
+    await _db.collectionDao.deleteById(id);
+    return existing;
+  }
+
+  /// Put back a row removed by [removeRestorable]. A new id is assigned;
+  /// everything the user typed is preserved.
+  Future<void> restore(CollectionItem item) => _db.collectionDao.insert(
+        CollectionItemsCompanion.insert(
+          cardId: item.cardId,
+          variant: item.variant,
+          quantity: Value(item.quantity),
+          condition: Value(item.condition),
+          language: Value(item.language),
+          scanPath: Value(item.scanPath),
+          notes: Value(item.notes),
+          acquiredAt: Value(item.acquiredAt),
+          pricePaid: Value(item.pricePaid),
+          addedAt: item.addedAt,
+        ),
+      );
+
   Future<void> setQuantity(int id, int quantity) =>
       quantity <= 0 ? remove(id) : _db.collectionDao.setQuantity(id, quantity);
 

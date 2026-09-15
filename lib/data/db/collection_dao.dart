@@ -14,6 +14,9 @@ class CollectionDao extends DatabaseAccessor<AppDatabase> with _$CollectionDaoMi
   Stream<List<CollectionItem>> watchForCard(String cardId) =>
       (select(collectionItems)..where((t) => t.cardId.equals(cardId))).watch();
 
+  Future<CollectionItem?> getById(int id) =>
+      (select(collectionItems)..where((t) => t.id.equals(id))).getSingleOrNull();
+
   Future<int> insert(CollectionItemsCompanion item) => into(collectionItems).insert(item);
 
   Future<bool> updateItem(CollectionItem item) => update(collectionItems).replace(item);
