@@ -28,7 +28,7 @@ notes below are from memory and may be slightly off.
 | 2 Local collection | Done, verified in browser (drift on IndexedDB) |
 | 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — needs the physical iPhone; see below |
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
-| 5 Polish | Not started |
+| 5 Polish | CSV export and price-change badge done; Japanese support not started |
 
 Dev loop right now is Flutter web (`.claude/launch.json` → `web`, which runs
 `tool/dev_web.sh`). The Scan tab falls back to manual entry on web via a
@@ -105,6 +105,10 @@ Show a **"Things to check"** panel on the detail page, never a "FAKE" label.
 ### Phase 5 — Polish (only if still enjoying it)
 - Export collection to CSV.
 - Price-change badge on cards whose trend moved >10 % since last refresh.
+  Done. `cards_cache` keeps one step of history (schema v2) rather than a
+  history table; `PriceChange.between` compares the chosen variant and refuses
+  to compare across currencies, so a Cardmarket-to-TCGplayer fallback does not
+  read as a huge move.
 - Japanese card support: switch `{lang}` to `ja` in TCGdex calls; OCR with ML Kit Japanese model.
 
 ## Folder structure
@@ -154,10 +158,12 @@ test/
 ## Data model (drift)
 
 ```
-cards_cache
-  id            TEXT PK        -- TCGdex card id, e.g. "swsh3-136"
-  json          TEXT           -- raw card response
-  fetched_at    INTEGER        -- epoch ms
+cards_cache                    -- schema v2
+  id                  TEXT PK  -- TCGdex card id, e.g. "swsh3-136"
+  json                TEXT     -- raw card response
+  fetched_at          INTEGER  -- epoch ms
+  previous_json       TEXT ?   -- the response this row replaced
+  previous_fetched_at INTEGER ?-- when that one was fetched
 
 collection_items
   id            INTEGER PK autoincrement

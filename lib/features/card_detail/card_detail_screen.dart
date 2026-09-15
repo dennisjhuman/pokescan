@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants.dart';
 import '../../data/providers.dart';
 import '../../data/db/database.dart';
+import '../../data/tcgdex/price_change.dart';
 import '../../data/tcgdex/set_resolver.dart';
 import '../../data/tcgdex/tcgdex_models.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../../shared/widgets/price_change_badge.dart';
 import '../scan/scan_outcome.dart';
 import 'add_to_collection_sheet.dart';
 import 'fake_signals.dart';
@@ -183,6 +185,7 @@ class _Body extends ConsumerWidget {
           onChanged: onVariant,
         ),
         const SizedBox(height: 16),
+        _PriceSince(cardId: card.id, card: card, variant: variant),
         PricePanel(pricing: card.pricing, variant: variant),
         const SizedBox(height: 24),
         _SignalsSection(card: card, scan: scan),
@@ -238,5 +241,42 @@ class _SignalsSection extends ConsumerWidget {
     );
 
     return FakeSignalsPanel(signals: signals, scan: scan, referenceUrl: referenceUrl);
+  }
+}
+
+
+/// Price movement since the previous refresh, above the price tables.
+/// Renders nothing until the card has been refreshed at least once.
+class _PriceSince extends ConsumerWidget {
+  const _PriceSince({required this.cardId, required this.card, required this.variant});
+
+  final String cardId;
+  final TcgCard card;
+  final CardVariant variant;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final previous = ref.watch(previousCardProvider(cardId)).value;
+    final change = PriceChange.between(
+      previousCard: previous,
+      currentCard: card,
+      variant: variant,
+    );
+    if (change == null || !change.isSignificant) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          PriceChangeBadge(change: change),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'since the last refresh',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

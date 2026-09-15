@@ -38,8 +38,36 @@ class $CardsCacheTable extends CardsCache
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _previousJsonMeta = const VerificationMeta(
+    'previousJson',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, json, fetchedAt];
+  late final GeneratedColumn<String> previousJson = GeneratedColumn<String>(
+    'previous_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _previousFetchedAtMeta = const VerificationMeta(
+    'previousFetchedAt',
+  );
+  @override
+  late final GeneratedColumn<int> previousFetchedAt = GeneratedColumn<int>(
+    'previous_fetched_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    json,
+    fetchedAt,
+    previousJson,
+    previousFetchedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -73,6 +101,24 @@ class $CardsCacheTable extends CardsCache
     } else if (isInserting) {
       context.missing(_fetchedAtMeta);
     }
+    if (data.containsKey('previous_json')) {
+      context.handle(
+        _previousJsonMeta,
+        previousJson.isAcceptableOrUnknown(
+          data['previous_json']!,
+          _previousJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('previous_fetched_at')) {
+      context.handle(
+        _previousFetchedAtMeta,
+        previousFetchedAt.isAcceptableOrUnknown(
+          data['previous_fetched_at']!,
+          _previousFetchedAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -94,6 +140,14 @@ class $CardsCacheTable extends CardsCache
         DriftSqlType.int,
         data['${effectivePrefix}fetched_at'],
       )!,
+      previousJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}previous_json'],
+      ),
+      previousFetchedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}previous_fetched_at'],
+      ),
     );
   }
 
@@ -107,10 +161,16 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
   final String id;
   final String json;
   final int fetchedAt;
+
+  /// The response this row replaced, or null if it has only been fetched once.
+  final String? previousJson;
+  final int? previousFetchedAt;
   const CardsCacheData({
     required this.id,
     required this.json,
     required this.fetchedAt,
+    this.previousJson,
+    this.previousFetchedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -118,6 +178,12 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
     map['id'] = Variable<String>(id);
     map['json'] = Variable<String>(json);
     map['fetched_at'] = Variable<int>(fetchedAt);
+    if (!nullToAbsent || previousJson != null) {
+      map['previous_json'] = Variable<String>(previousJson);
+    }
+    if (!nullToAbsent || previousFetchedAt != null) {
+      map['previous_fetched_at'] = Variable<int>(previousFetchedAt);
+    }
     return map;
   }
 
@@ -126,6 +192,12 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
       id: Value(id),
       json: Value(json),
       fetchedAt: Value(fetchedAt),
+      previousJson: previousJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previousJson),
+      previousFetchedAt: previousFetchedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previousFetchedAt),
     );
   }
 
@@ -138,6 +210,8 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
       id: serializer.fromJson<String>(json['id']),
       json: serializer.fromJson<String>(json['json']),
       fetchedAt: serializer.fromJson<int>(json['fetchedAt']),
+      previousJson: serializer.fromJson<String?>(json['previousJson']),
+      previousFetchedAt: serializer.fromJson<int?>(json['previousFetchedAt']),
     );
   }
   @override
@@ -147,20 +221,37 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
       'id': serializer.toJson<String>(id),
       'json': serializer.toJson<String>(json),
       'fetchedAt': serializer.toJson<int>(fetchedAt),
+      'previousJson': serializer.toJson<String?>(previousJson),
+      'previousFetchedAt': serializer.toJson<int?>(previousFetchedAt),
     };
   }
 
-  CardsCacheData copyWith({String? id, String? json, int? fetchedAt}) =>
-      CardsCacheData(
-        id: id ?? this.id,
-        json: json ?? this.json,
-        fetchedAt: fetchedAt ?? this.fetchedAt,
-      );
+  CardsCacheData copyWith({
+    String? id,
+    String? json,
+    int? fetchedAt,
+    Value<String?> previousJson = const Value.absent(),
+    Value<int?> previousFetchedAt = const Value.absent(),
+  }) => CardsCacheData(
+    id: id ?? this.id,
+    json: json ?? this.json,
+    fetchedAt: fetchedAt ?? this.fetchedAt,
+    previousJson: previousJson.present ? previousJson.value : this.previousJson,
+    previousFetchedAt: previousFetchedAt.present
+        ? previousFetchedAt.value
+        : this.previousFetchedAt,
+  );
   CardsCacheData copyWithCompanion(CardsCacheCompanion data) {
     return CardsCacheData(
       id: data.id.present ? data.id.value : this.id,
       json: data.json.present ? data.json.value : this.json,
       fetchedAt: data.fetchedAt.present ? data.fetchedAt.value : this.fetchedAt,
+      previousJson: data.previousJson.present
+          ? data.previousJson.value
+          : this.previousJson,
+      previousFetchedAt: data.previousFetchedAt.present
+          ? data.previousFetchedAt.value
+          : this.previousFetchedAt,
     );
   }
 
@@ -169,37 +260,48 @@ class CardsCacheData extends DataClass implements Insertable<CardsCacheData> {
     return (StringBuffer('CardsCacheData(')
           ..write('id: $id, ')
           ..write('json: $json, ')
-          ..write('fetchedAt: $fetchedAt')
+          ..write('fetchedAt: $fetchedAt, ')
+          ..write('previousJson: $previousJson, ')
+          ..write('previousFetchedAt: $previousFetchedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, json, fetchedAt);
+  int get hashCode =>
+      Object.hash(id, json, fetchedAt, previousJson, previousFetchedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is CardsCacheData &&
           other.id == this.id &&
           other.json == this.json &&
-          other.fetchedAt == this.fetchedAt);
+          other.fetchedAt == this.fetchedAt &&
+          other.previousJson == this.previousJson &&
+          other.previousFetchedAt == this.previousFetchedAt);
 }
 
 class CardsCacheCompanion extends UpdateCompanion<CardsCacheData> {
   final Value<String> id;
   final Value<String> json;
   final Value<int> fetchedAt;
+  final Value<String?> previousJson;
+  final Value<int?> previousFetchedAt;
   final Value<int> rowid;
   const CardsCacheCompanion({
     this.id = const Value.absent(),
     this.json = const Value.absent(),
     this.fetchedAt = const Value.absent(),
+    this.previousJson = const Value.absent(),
+    this.previousFetchedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CardsCacheCompanion.insert({
     required String id,
     required String json,
     required int fetchedAt,
+    this.previousJson = const Value.absent(),
+    this.previousFetchedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        json = Value(json),
@@ -208,12 +310,16 @@ class CardsCacheCompanion extends UpdateCompanion<CardsCacheData> {
     Expression<String>? id,
     Expression<String>? json,
     Expression<int>? fetchedAt,
+    Expression<String>? previousJson,
+    Expression<int>? previousFetchedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (json != null) 'json': json,
       if (fetchedAt != null) 'fetched_at': fetchedAt,
+      if (previousJson != null) 'previous_json': previousJson,
+      if (previousFetchedAt != null) 'previous_fetched_at': previousFetchedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -222,12 +328,16 @@ class CardsCacheCompanion extends UpdateCompanion<CardsCacheData> {
     Value<String>? id,
     Value<String>? json,
     Value<int>? fetchedAt,
+    Value<String?>? previousJson,
+    Value<int?>? previousFetchedAt,
     Value<int>? rowid,
   }) {
     return CardsCacheCompanion(
       id: id ?? this.id,
       json: json ?? this.json,
       fetchedAt: fetchedAt ?? this.fetchedAt,
+      previousJson: previousJson ?? this.previousJson,
+      previousFetchedAt: previousFetchedAt ?? this.previousFetchedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -244,6 +354,12 @@ class CardsCacheCompanion extends UpdateCompanion<CardsCacheData> {
     if (fetchedAt.present) {
       map['fetched_at'] = Variable<int>(fetchedAt.value);
     }
+    if (previousJson.present) {
+      map['previous_json'] = Variable<String>(previousJson.value);
+    }
+    if (previousFetchedAt.present) {
+      map['previous_fetched_at'] = Variable<int>(previousFetchedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -256,6 +372,8 @@ class CardsCacheCompanion extends UpdateCompanion<CardsCacheData> {
           ..write('id: $id, ')
           ..write('json: $json, ')
           ..write('fetchedAt: $fetchedAt, ')
+          ..write('previousJson: $previousJson, ')
+          ..write('previousFetchedAt: $previousFetchedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -930,12 +1048,16 @@ typedef $$CardsCacheTableCreateCompanionBuilder = CardsCacheCompanion Function({
   required String id,
   required String json,
   required int fetchedAt,
+  Value<String?> previousJson,
+  Value<int?> previousFetchedAt,
   Value<int> rowid,
 });
 typedef $$CardsCacheTableUpdateCompanionBuilder = CardsCacheCompanion Function({
   Value<String> id,
   Value<String> json,
   Value<int> fetchedAt,
+  Value<String?> previousJson,
+  Value<int?> previousFetchedAt,
   Value<int> rowid,
 });
 
@@ -988,6 +1110,16 @@ class $$CardsCacheTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get previousJson => $composableBuilder(
+    column: $table.previousJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get previousFetchedAt => $composableBuilder(
+    column: $table.previousFetchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
   Expression<bool> collectionItemsRefs(
     Expression<bool> Function($$CollectionItemsTableFilterComposer f) f,
   ) {
@@ -1037,6 +1169,16 @@ class $$CardsCacheTableOrderingComposer
     column: $table.fetchedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get previousJson => $composableBuilder(
+    column: $table.previousJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get previousFetchedAt => $composableBuilder(
+    column: $table.previousFetchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CardsCacheTableAnnotationComposer
@@ -1056,6 +1198,16 @@ class $$CardsCacheTableAnnotationComposer
 
   GeneratedColumn<int> get fetchedAt =>
       $composableBuilder(column: $table.fetchedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get previousJson => $composableBuilder(
+    column: $table.previousJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get previousFetchedAt => $composableBuilder(
+    column: $table.previousFetchedAt,
+    builder: (column) => column,
+  );
 
   Expression<T> collectionItemsRefs<T extends Object>(
     Expression<T> Function($$CollectionItemsTableAnnotationComposer a) f,
@@ -1114,11 +1266,15 @@ class $$CardsCacheTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> json = const Value.absent(),
                 Value<int> fetchedAt = const Value.absent(),
+                Value<String?> previousJson = const Value.absent(),
+                Value<int?> previousFetchedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CardsCacheCompanion(
                 id: id,
                 json: json,
                 fetchedAt: fetchedAt,
+                previousJson: previousJson,
+                previousFetchedAt: previousFetchedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -1126,11 +1282,15 @@ class $$CardsCacheTableTableManager
                 required String id,
                 required String json,
                 required int fetchedAt,
+                Value<String?> previousJson = const Value.absent(),
+                Value<int?> previousFetchedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CardsCacheCompanion.insert(
                 id: id,
                 json: json,
                 fetchedAt: fetchedAt,
+                previousJson: previousJson,
+                previousFetchedAt: previousFetchedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

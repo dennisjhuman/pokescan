@@ -61,6 +61,15 @@ class CardRepository {
     return _memory[key] = TcgCard.fromJson(jsonDecode(row.json) as Map<String, dynamic>);
   }
 
+  /// The response the cached row replaced, or null if it has only ever been
+  /// fetched once.
+  Future<TcgCard?> getPreviousCard(String id) async {
+    final row = await _cache.get(id.toLowerCase());
+    final prev = row?.previousJson;
+    if (prev == null) return null;
+    return TcgCard.fromJson(jsonDecode(prev) as Map<String, dynamic>);
+  }
+
   Future<List<CardBrief>> searchByName(String name, {String? setId}) =>
       _client.searchCards(name.trim(), setId: setId);
 

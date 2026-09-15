@@ -40,6 +40,14 @@ final cardProvider = FutureProvider.family<TcgCard, String>((ref, id) {
 final collectionProvider = StreamProvider<List<CollectionEntry>>(
     (ref) => ref.watch(collectionRepositoryProvider).watchAll());
 
+/// The cached response this card's row replaced, if any. Drives the
+/// price-change badge on the detail screen.
+final previousCardProvider = FutureProvider.family<TcgCard?, String>((ref, id) async {
+  // Rebuild whenever the card itself is refetched, so the badge updates with it.
+  await ref.watch(cardProvider(id).future);
+  return ref.watch(cardRepositoryProvider).getPreviousCard(id);
+});
+
 /// Mean saturation of the official card image, for the soft colour check.
 ///
 /// Null when it cannot be measured, which is the normal case on web: the

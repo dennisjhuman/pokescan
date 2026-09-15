@@ -7,10 +7,18 @@ import 'collection_dao.dart';
 part 'database.g.dart';
 
 /// Raw TCGdex card JSON, keyed by card id. `fetchedAt` drives the 7-day TTL.
+///
+/// The previous response is kept alongside so a price move can be shown
+/// without a separate history table. One step back is all the badge needs,
+/// and it keeps the cache a single row per card.
 class CardsCache extends Table {
   TextColumn get id => text()();
   TextColumn get json => text()();
   IntColumn get fetchedAt => integer()();
+
+  /// The response this row replaced, or null if it has only been fetched once.
+  TextColumn get previousJson => text().nullable()();
+  IntColumn get previousFetchedAt => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -50,10 +58,18 @@ class AppDatabase extends _$AppDatabase {
   // drift/native.dart here would pull dart:ffi into the web build.
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Existing rows get a null previous snapshot, so they simply show
+            // no price-change badge until their next refresh.
+            await m.addColumn(cardsCache, cardsCache.previousJson);
+            await m.addColumn(cardsCache, cardsCache.previousFetchedAt);
+          }
+        },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
         },

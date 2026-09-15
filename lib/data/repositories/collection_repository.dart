@@ -4,17 +4,26 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../db/database.dart';
+import '../tcgdex/price_change.dart';
 import '../tcgdex/tcgdex_models.dart';
 
 /// A collection row joined with its cached card, plus derived value.
 /// Nothing computed is stored; value is derived here at read time.
 class CollectionEntry {
-  const CollectionEntry({required this.item, required this.card});
+  const CollectionEntry({required this.item, required this.card, this.previousCard});
 
   final CollectionItem item;
 
   /// Null only if the cache row vanished (shouldn't happen; FK protects it).
   final TcgCard? card;
+
+  /// The response this card's cache row replaced, if it has been refreshed at
+  /// least once. Drives the price-change badge.
+  final TcgCard? previousCard;
+
+  /// Movement since the previous refresh, or null if not comparable.
+  PriceChange? get priceChange =>
+      PriceChange.between(previousCard: previousCard, currentCard: card, variant: variant);
 
   CardVariant get variant => CardVariant.tryParse(item.variant) ?? CardVariant.normal;
 
@@ -122,6 +131,8 @@ class CollectionRepository {
     Map<String, TcgCard>? latestCards;
     final parsed = <String, TcgCard>{};
     final parsedJson = <String, String>{};
+    final parsedPrevious = <String, TcgCard>{};
+    final parsedPreviousJson = <String, String>{};
 
     await for (final event in _merge(items, cache)) {
       if (event is List<CollectionItem>) {
@@ -132,13 +143,26 @@ class CollectionRepository {
             parsedJson[row.id] = row.json;
             parsed[row.id] = TcgCard.fromJson(jsonDecode(row.json) as Map<String, dynamic>);
           }
+          final prev = row.previousJson;
+          if (prev == null) {
+            parsedPreviousJson.remove(row.id);
+            parsedPrevious.remove(row.id);
+          } else if (parsedPreviousJson[row.id] != prev) {
+            parsedPreviousJson[row.id] = prev;
+            parsedPrevious[row.id] = TcgCard.fromJson(jsonDecode(prev) as Map<String, dynamic>);
+          }
         }
         latestCards = parsed;
       }
       if (latestItems != null && latestCards != null) {
         final cards = latestCards;
         yield [
-          for (final it in latestItems) CollectionEntry(item: it, card: cards[it.cardId]),
+          for (final it in latestItems)
+            CollectionEntry(
+              item: it,
+              card: cards[it.cardId],
+              previousCard: parsedPrevious[it.cardId],
+            ),
         ];
       }
     }

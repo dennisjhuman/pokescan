@@ -7,6 +7,7 @@ import '../../data/providers.dart';
 import '../../data/repositories/collection_repository.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../../shared/widgets/price_change_badge.dart';
 import '../card_detail/price_panel.dart';
 import 'collection_summary.dart';
 import 'export_csv.dart';
@@ -214,9 +215,16 @@ class _EntryTile extends ConsumerWidget {
           '${c?.numberLabel ?? ''} · ${entry.variant.label} · ${entry.item.condition}'
           '${entry.item.quantity > 1 ? ' · ×${entry.item.quantity}' : ''}',
         ),
-        trailing: Text(
-          v == null ? '—' : fmtMoney(v.amount, v.currency),
-          style: Theme.of(context).textTheme.titleMedium,
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              v == null ? '—' : fmtMoney(v.amount, v.currency),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            PriceChangeBadge(change: entry.priceChange, dense: true),
+          ],
         ),
         onTap: () => context.push('/card/${entry.item.cardId}'),
       ),
