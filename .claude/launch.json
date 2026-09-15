@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port=8787", "--web-hostname=localhost"],
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["tool/dev_web.sh"],
       "port": 8787
     }
   ]

@@ -30,10 +30,27 @@ notes below are from memory and may be slightly off.
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | Not started |
 
-Dev loop right now is Flutter web (`.claude/launch.json` → `web`), because Xcode
-first-run components are not installed (`sudo xcodebuild -runFirstLaunch` needs
-a password). The Scan tab falls back to manual entry on web via a conditional
-import, since ML Kit is mobile-only and the cropper needs `dart:io`.
+Dev loop right now is Flutter web (`.claude/launch.json` → `web`, which runs
+`tool/dev_web.sh`). The Scan tab falls back to manual entry on web via a
+conditional import, since ML Kit is mobile-only and the cropper needs `dart:io`.
+
+**Xcode is blocking, and it needs your password.** Xcode updated itself to 27.0
+on 2026-09-15, which voids the previously accepted licence. Until you run
+
+```
+sudo xcodebuild -license
+```
+
+every flutter command exits 69, including `flutter build web`, which has nothing
+to do with Xcode. `tool/dev_web.sh` works around it for the dev server by
+pointing `DEVELOPER_DIR` at the Command Line Tools.
+
+`flutter test` cannot be worked around the same way. ML Kit pulls in
+`package:objective_c`, whose build hook shells out to a bare `xcrun` that does
+not inherit `DEVELOPER_DIR` from the wrapper, so it hits the licence and the
+whole test run fails with "Building native assets failed". **The test suite is
+un-runnable until the licence is accepted.** It last passed fully (85 tests) on
+2026-09-15 under Xcode 26.6.
 
 ## Build order (phases — finish and run each before starting the next)
 
