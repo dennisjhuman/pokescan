@@ -9,8 +9,8 @@ import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
 import 'card_guide_overlay.dart';
 import 'card_search_sheet.dart';
-import 'card_text_parser.dart';
 import 'manual_entry_sheet.dart';
+import 'scan_outcome.dart';
 import 'scan_pipeline.dart';
 import 'set_picker_sheet.dart';
 
@@ -116,7 +116,7 @@ class _CameraScanViewState extends ConsumerState<CameraScanView> with WidgetsBin
       final outcome = await ref.read(scanPipelineProvider).run(path, guide: guide);
       ref.read(lastScanProvider.notifier).set(outcome);
       if (!mounted) return;
-      await _route(outcome.parsed);
+      await _route(outcome);
     } catch (e) {
       if (mounted) setState(() => _error = describeError(e));
     } finally {
@@ -124,19 +124,27 @@ class _CameraScanViewState extends ConsumerState<CameraScanView> with WidgetsBin
     }
   }
 
-  Future<void> _route(ParsedCard parsed) async {
+  Future<void> _route(ScanOutcome outcome) async {
+    final parsed = outcome.parsed;
     if (parsed.isConfident) {
-      context.push('/card/${parsed.candidateIds.single}');
+      _open(outcome, parsed.candidateIds.single);
       return;
     }
     if (parsed.candidateSets.length > 1) {
       final set = await showSetPicker(context, parsed.candidateSets);
-      if (set != null && mounted) context.push('/card/${set.cardIdFor(parsed.number!)}');
+      if (set != null && mounted) _open(outcome, set.cardIdFor(parsed.number!));
       return;
     }
     if (!mounted) return;
     final id = await showCardSearchSheet(context, initialQuery: parsed.name ?? '');
-    if (id != null && mounted) context.push('/card/$id');
+    if (id != null && mounted) _open(outcome, id);
+  }
+
+  /// Tie the scan to the card it was opened as, so the detail screen knows the
+  /// crop and OCR text belong to what it is showing.
+  void _open(ScanOutcome outcome, String cardId) {
+    ref.read(lastScanProvider.notifier).set(outcome.resolvedAs(cardId));
+    context.push('/card/$cardId');
   }
 
   @override

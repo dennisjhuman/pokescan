@@ -27,7 +27,7 @@ notes below are from memory and may be slightly off.
 | 1 Skeleton + manual lookup | Done, verified in browser |
 | 2 Local collection | Done, verified in browser (drift on IndexedDB) |
 | 3 Camera + OCR | Code complete, **unverified on device** — needs an iOS sim or phone |
-| 4 Fake signals | Not started |
+| 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | Not started |
 
 Dev loop right now is Flutter web (`.claude/launch.json` → `web`), because Xcode
@@ -73,6 +73,13 @@ Show a **"Things to check"** panel on the detail page, never a "FAKE" label.
 - **Set sanity**: name exists but not in the set implied by the number → warning.
 - **Optional, soft**: average colour / saturation delta between scan and reference beyond a threshold → "colour looks off — check under daylight". Keep this low-confidence; phone lighting varies.
 - Done when: a known counterfeit with wrong text triggers at least one warning.
+- Covered by unit tests (`test/fake_signals_test.dart`) including a typo'd
+  attack name and a wrong HP. Still worth running a real counterfeit through
+  the camera when one is to hand.
+- Mismatch thresholds are deliberately loose (0.6 similarity) so OCR noise
+  does not manufacture warnings. Tighten only with real scans as evidence.
+- The colour check needs the official image's bytes, which the TCGdex asset
+  host will not serve cross-origin, so it is silently skipped on web.
 
 ### Phase 5 — Polish (only if still enjoying it)
 - Export collection to CSV.

@@ -4,11 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
 import '../../data/providers.dart';
-import '../../data/tcgdex/tcgdex_models.dart';
 import '../../data/db/database.dart';
+import '../../data/tcgdex/set_resolver.dart';
+import '../../data/tcgdex/tcgdex_models.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../scan/scan_outcome.dart';
 import 'add_to_collection_sheet.dart';
+import 'fake_signals.dart';
+import 'fake_signals_panel.dart';
 import 'price_panel.dart';
 import 'variant_picker.dart';
 
@@ -28,6 +32,9 @@ class _CardDetailScreenState extends ConsumerState<CardDetailScreen> {
     final async = ref.watch(cardProvider(widget.cardId));
     final owned = ref.watch(collectionForCardProvider(widget.cardId)).value ?? const [];
     final card = async.value;
+    // Only apply a scan to the card it was actually opened as.
+    final lastScan = ref.watch(lastScanProvider);
+    final scan = lastScan?.resolvedCardId == widget.cardId ? lastScan : null;
     final variant = _variant ?? card?.variants.defaultVariant ?? CardVariant.normal;
     return Scaffold(
       appBar: AppBar(title: Text(card?.name ?? widget.cardId)),
@@ -56,6 +63,7 @@ class _CardDetailScreenState extends ConsumerState<CardDetailScreen> {
             card: card,
             variant: variant,
             owned: owned,
+            scan: scan,
             onVariant: (v) => setState(() => _variant = v),
           ),
         ),
@@ -69,11 +77,13 @@ class _Body extends ConsumerWidget {
     required this.card,
     required this.variant,
     required this.owned,
+    required this.scan,
     required this.onVariant,
   });
   final TcgCard card;
   final CardVariant variant;
   final List<CollectionItem> owned;
+  final ScanOutcome? scan;
   final ValueChanged<CardVariant> onVariant;
 
   @override
@@ -175,6 +185,8 @@ class _Body extends ConsumerWidget {
         const SizedBox(height: 16),
         PricePanel(pricing: card.pricing, variant: variant),
         const SizedBox(height: 24),
+        _SignalsSection(card: card, scan: scan),
+        const SizedBox(height: 24),
         if (card.attacks.isNotEmpty) ...[
           Text('Attacks', style: text.titleSmall),
           for (final a in card.attacks)
@@ -194,5 +206,37 @@ class _Body extends ConsumerWidget {
         ),
       ],
     );
+  }
+}
+
+
+/// Builds the "Things to check" panel. The colour comparison needs the
+/// official image's saturation, which is fetched lazily and is often
+/// unavailable (blocked by CORS on web), so the panel renders without it
+/// rather than waiting.
+class _SignalsSection extends ConsumerWidget {
+  const _SignalsSection({required this.card, required this.scan});
+
+  final TcgCard card;
+  final ScanOutcome? scan;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final referenceUrl = card.imageUrl();
+    double? delta;
+    final cropSaturation = scan?.cropSaturation;
+    if (cropSaturation != null && referenceUrl != null) {
+      final reference = ref.watch(referenceSaturationProvider(referenceUrl)).value;
+      if (reference != null) delta = cropSaturation - reference;
+    }
+
+    final signals = FakeSignals.evaluate(
+      card: card,
+      scan: scan?.parsed,
+      set: SetResolver().byCode(card.set.id),
+      saturationDelta: delta,
+    );
+
+    return FakeSignalsPanel(signals: signals, scan: scan, referenceUrl: referenceUrl);
   }
 }

@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
+import '../shared/utils/colour_stats.dart';
 import 'db/database.dart';
 import 'repositories/card_repository.dart';
 import 'repositories/collection_repository.dart';
@@ -36,6 +39,24 @@ final cardProvider = FutureProvider.family<TcgCard, String>((ref, id) {
 /// Whole collection, live.
 final collectionProvider = StreamProvider<List<CollectionEntry>>(
     (ref) => ref.watch(collectionRepositoryProvider).watchAll());
+
+/// Mean saturation of the official card image, for the soft colour check.
+///
+/// Null when it cannot be measured, which is the normal case on web: the
+/// TCGdex asset host sends no CORS header, so the fetch is blocked. The colour
+/// signal is optional by design, so a null simply drops it.
+final referenceSaturationProvider = FutureProvider.family<double?, String>((ref, imageUrl) async {
+  ref.keepAlive();
+  try {
+    final res = await http.get(Uri.parse(imageUrl));
+    if (res.statusCode != 200) return null;
+    return await compute(_saturationOf, res.bodyBytes);
+  } catch (_) {
+    return null;
+  }
+});
+
+double? _saturationOf(Uint8List bytes) => meanSaturation(bytes);
 
 /// Rows the user owns for one card, live.
 final collectionForCardProvider = StreamProvider.family<List<CollectionItem>, String>(
