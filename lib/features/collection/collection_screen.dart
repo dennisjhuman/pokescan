@@ -9,6 +9,7 @@ import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
 import '../card_detail/price_panel.dart';
 import 'collection_summary.dart';
+import 'export_csv.dart';
 
 enum _Sort { newest, valueDesc, name, set }
 
@@ -22,6 +23,23 @@ class CollectionScreen extends ConsumerStatefulWidget {
 class _CollectionScreenState extends ConsumerState<CollectionScreen> {
   _Sort _sort = _Sort.set;
   String _query = '';
+
+  Future<void> _export(List<CollectionEntry> entries) async {
+    if (entries.isEmpty) {
+      _tell('Nothing to export yet.');
+      return;
+    }
+    try {
+      await exportCollectionCsv(context, entries);
+    } catch (e) {
+      _tell(describeError(e));
+    }
+  }
+
+  void _tell(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +58,11 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
               PopupMenuItem(value: _Sort.name, child: Text('Name')),
               PopupMenuItem(value: _Sort.newest, child: Text('Recently added')),
             ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: 'Export CSV',
+            onPressed: () => _export(async.value ?? const []),
           ),
         ],
       ),
