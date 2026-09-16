@@ -29,10 +29,30 @@ notes below are from memory and may be slightly off.
 | 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — needs the physical iPhone; see below |
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | CSV export and price-change badge done; Japanese support not started |
+| Shipping | Web app live and installable; iOS build for scanning only |
 
-Dev loop right now is Flutter web (`.claude/launch.json` → `web`, which runs
-`tool/dev_web.sh`). The Scan tab falls back to manual entry on web via a
-conditional import, since ML Kit is mobile-only and the cropper needs `dart:io`.
+### Shipping (decided 2026-09-16)
+
+Two targets, same code:
+
+- **Web app — https://dennisjhuman.github.io/pokescan/** — the one people
+  actually use. Add to Home Screen gives an icon and a chrome-less launch. No
+  signing, no expiry, no install dance, works on any device. Deployed by
+  GitHub Actions on every push to `main`, which runs `flutter analyze` and the
+  test suite first. Repo is public because Pages on a free account requires it.
+- **iOS build** — kept for camera scanning only, since ML Kit is mobile-only.
+  Signed with a free personal team, so it stops launching after 7 days and
+  needs a reinstall (`flutter build ios --release`, then
+  `xcrun devicectl device install app --device <udid> build/ios/iphoneos/Runner.app`).
+
+The Scan tab falls back to manual entry on web via a conditional import, since
+ML Kit is mobile-only and the cropper needs `dart:io`.
+
+Storage is local on every platform and is never sent anywhere. On web that is
+IndexedDB, and the app requests persistent storage at startup so Safari does
+not evict the collection. CSV export is the only backup.
+
+Dev loop is `.claude/launch.json` → `web`, which runs `tool/dev_web.sh`.
 
 Xcode 27.0 licence accepted and first-launch components installed on
 2026-09-15, so the full toolchain works again. `tool/dev_web.sh` keeps a
