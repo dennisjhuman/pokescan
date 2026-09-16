@@ -99,8 +99,13 @@ Show a **"Things to check"** panel on the detail page, never a "FAKE" label.
   the camera when one is to hand.
 - Mismatch thresholds are deliberately loose (0.6 similarity) so OCR noise
   does not manufacture warnings. Tighten only with real scans as evidence.
-- The colour check needs the official image's bytes, which the TCGdex asset
-  host will not serve cross-origin, so it is silently skipped on web.
+- The colour check needs the official image's bytes. An earlier note here said
+  the TCGdex asset host blocks cross-origin reads — that was wrong. Verified
+  2026-09-16: `assets.tcgdex.net` returns `access-control-allow-origin: *` on
+  valid paths. The CORS error seen during development came from a **404** (a
+  wrong set-symbol URL); error responses carry no CORS headers, which the
+  browser reports as a CORS failure. Valid card images fetch fine on web, so
+  the colour check should work there too.
 
 ### Phase 5 — Polish (only if still enjoying it)
 - Export collection to CSV.
