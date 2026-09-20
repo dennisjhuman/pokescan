@@ -7,7 +7,6 @@
 /// of the set's own grid.
 library;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -101,13 +100,10 @@ class _SetTile extends StatelessWidget {
       leading: SizedBox(
         width: 72,
         height: 48,
-        child: set.logoUrl == null
-            ? Center(child: Icon(Icons.style_outlined, color: scheme.outline))
-            : CachedNetworkImage(
-                imageUrl: set.logoUrl!,
-                fit: BoxFit.contain,
-                errorWidget: (_, _, _) => Center(child: Icon(Icons.style_outlined, color: scheme.outline)),
-              ),
+        child: RemoteIcon(
+          url: set.logoUrl,
+          fallback: Center(child: Icon(Icons.style_outlined, color: scheme.outline)),
+        ),
       ),
       title: Text(set.name),
       subtitle: Text(
@@ -121,15 +117,7 @@ class _SetTile extends StatelessWidget {
       ),
       trailing: set.symbolUrl == null
           ? null
-          : SizedBox(
-              width: 28,
-              height: 28,
-              child: CachedNetworkImage(
-                imageUrl: set.symbolUrl!,
-                fit: BoxFit.contain,
-                errorWidget: (_, _, _) => const SizedBox.shrink(),
-              ),
-            ),
+          : SizedBox(width: 28, height: 28, child: RemoteIcon(url: set.symbolUrl)),
     );
   }
 }

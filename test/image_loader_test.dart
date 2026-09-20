@@ -1,0 +1,204 @@
+import 'dart:async';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:pokescan/shared/utils/image_loader.dart';
+
+/// The asset host answers 62 simultaneous requests with 44 failures, so these
+/// tests are about not asking for 62 at once and about coming back from the
+/// failures that still happen.
+void main() {
+  Uint8List bytes(int n) => Uint8List.fromList(List.filled(n, 7));
+
+  /// No real waiting: the loader's sleep is replaced, and the delays it asks
+  /// for are recorded so the backoff curve can be asserted on.
+  ({ImageLoader loader, List<Duration> slept}) loaderWith(
+    Future<http.Response> Function(http.Request) handler, {
+    int maxConcurrent = 5,
+    int maxAttempts = 4,
+  }) {
+    final slept = <Duration>[];
+    final loader = ImageLoader(
+      client: MockClient(handler),
+      maxConcurrent: maxConcurrent,
+      maxAttempts: maxAttempts,
+      sleep: (d) async => slept.add(d),
+      random: Random(1),
+    );
+    return (loader: loader, slept: slept);
+  }
+
+  group('concurrency gate', () {
+    test('never has more than maxConcurrent requests in flight', () async {
+      var inFlight = 0;
+      var peak = 0;
+      final gates = <Completer<void>>[];
+
+      final l = loaderWith((req) async {
+        inFlight++;
+        peak = max(peak, inFlight);
+        final gate = Completer<void>();
+        gates.add(gate);
+        await gate.future;
+        inFlight--;
+        return http.Response.bytes(bytes(10), 200);
+      }, maxConcurrent: 5);
+
+      final all = [for (var i = 0; i < 62; i++) l.loader.load('https://x/$i')];
+      await Future<void>.delayed(Duration.zero);
+      expect(peak, lessThanOrEqualTo(5), reason: 'this is the whole fix');
+
+      // Let them drain, opening gates as they appear.
+      while (gates.isNotEmpty) {
+        gates.removeAt(0).complete();
+        await Future<void>.delayed(Duration.zero);
+      }
+      await Future.wait(all);
+      expect(peak, 5);
+    });
+
+    test('ten tiles wanting the same picture make one request', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response.bytes(bytes(10), 200);
+      });
+
+      final results =
+          await Future.wait([for (var i = 0; i < 10; i++) l.loader.load('https://x/same')]);
+      expect(calls, 1);
+      expect(results.every((r) => r != null), isTrue);
+    });
+  });
+
+  group('retry', () {
+    test('a 503 is retried and can succeed', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return calls < 3
+            ? http.Response('busy', 503)
+            : http.Response.bytes(bytes(10), 200);
+      });
+
+      expect(await l.loader.load('https://x/1'), isNotNull);
+      expect(calls, 3);
+      expect(l.slept.length, 2, reason: 'one wait between each attempt');
+    });
+
+    test('backoff grows and is jittered', () {
+      final r = Random(42);
+      final first = ImageLoader.backoffFor(1, r).inMilliseconds;
+      final third = ImageLoader.backoffFor(3, r).inMilliseconds;
+      expect(first, inInclusiveRange(100, 300));
+      expect(third, inInclusiveRange(400, 1200));
+
+      // Jitter: two draws for the same attempt must not be identical, or
+      // sixty failed tiles would all retry on the same tick.
+      final a = ImageLoader.backoffFor(2, Random(1));
+      final b = ImageLoader.backoffFor(2, Random(2));
+      expect(a, isNot(b));
+    });
+
+    test('gives up after maxAttempts and remembers the failure', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response('busy', 503);
+      }, maxAttempts: 3);
+
+      expect(await l.loader.load('https://x/1'), isNull);
+      expect(calls, 3);
+      expect(l.loader.hasFailed('https://x/1'), isTrue);
+
+      // A remembered failure costs nothing on the next scroll.
+      expect(await l.loader.load('https://x/1'), isNull);
+      expect(calls, 3);
+
+      // ...until the user asks for a retry.
+      l.loader.retryFailures();
+      expect(await l.loader.load('https://x/1'), isNull);
+      expect(calls, 6);
+    });
+
+    test('a 404 is an answer, not something to retry', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response('gone', 404);
+      });
+
+      expect(await l.loader.load('https://x/missing'), isNull);
+      expect(calls, 1, reason: 'a lot of sets genuinely have no logo');
+    });
+
+    test('an empty 200 counts as a failure', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return calls == 1
+            ? http.Response.bytes(Uint8List(0), 200)
+            : http.Response.bytes(bytes(10), 200);
+      });
+
+      expect(await l.loader.load('https://x/1'), isNotNull);
+      expect(calls, 2);
+    });
+
+    test('a thrown connection error is retried', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        if (calls == 1) throw const SocketExceptionLike();
+        return http.Response.bytes(bytes(10), 200);
+      });
+
+      expect(await l.loader.load('https://x/1'), isNotNull);
+      expect(calls, 2);
+    });
+  });
+
+  group('byte cache', () {
+    test('a cached url is served without touching the network', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response.bytes(bytes(10), 200);
+      });
+
+      await l.loader.load('https://x/1');
+      expect(l.loader.cached('https://x/1'), isNotNull);
+      await l.loader.load('https://x/1');
+      expect(calls, 1, reason: 'scrolling back must not re-request');
+    });
+
+    test('evicts least recently used once over the ceiling', () {
+      final c = ImageByteCache(maxBytes: 100);
+      c.put('a', bytes(40));
+      c.put('b', bytes(40));
+      c.get('a'); // 'a' is now the most recent, so 'b' should go first
+      c.put('c', bytes(40));
+
+      expect(c.get('a'), isNotNull);
+      expect(c.get('b'), isNull);
+      expect(c.get('c'), isNotNull);
+      expect(c.byteCount, lessThanOrEqualTo(100));
+    });
+
+    test('replacing a url does not double-count its bytes', () {
+      final c = ImageByteCache(maxBytes: 1000);
+      c.put('a', bytes(40));
+      c.put('a', bytes(60));
+      expect(c.length, 1);
+      expect(c.byteCount, 60);
+    });
+  });
+}
+
+/// Stand-in for a connection failure; the loader only cares that it throws.
+class SocketExceptionLike implements Exception {
+  const SocketExceptionLike();
+}

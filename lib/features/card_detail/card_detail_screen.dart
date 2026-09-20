@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -142,10 +141,10 @@ class _Body extends ConsumerWidget {
             if (card.set.symbolUrl() != null)
               Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: CachedNetworkImage(
-                  imageUrl: card.set.symbolUrl()!,
+                child: SizedBox(
                   height: 18,
-                  errorWidget: (_, _, _) => const SizedBox.shrink(),
+                  width: 18,
+                  child: RemoteIcon(url: card.set.symbolUrl()),
                 ),
               ),
             Expanded(

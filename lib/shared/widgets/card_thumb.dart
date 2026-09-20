@@ -1,7 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
+import '../utils/image_loader.dart';
 
 /// A card picture at the real 63 × 88 mm shape, big enough to recognise the
 /// artwork. TCGdex has no image at all for a fair number of cards (older
@@ -23,24 +25,104 @@ class CardThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(8);
     final child = AspectRatio(
       aspectRatio: AppConstants.cardAspectRatio,
       child: ClipRRect(
-        borderRadius: radius,
+        borderRadius: BorderRadius.circular(8),
         child: imageUrl == null
             ? _Placeholder(name: name, number: number, reason: 'No artwork')
-            : CachedNetworkImage(
-                imageUrl: imageUrl!,
-                fit: BoxFit.cover,
-                fadeInDuration: const Duration(milliseconds: 120),
-                placeholder: (_, _) => const _Loading(),
-                errorWidget: (_, _, _) =>
-                    _Placeholder(name: name, number: number, reason: 'Image unavailable'),
+            : _LoadedImage(
+                url: imageUrl!,
+                name: name,
+                number: number,
               ),
       ),
     );
     return width == null ? child : SizedBox(width: width, child: child);
+  }
+}
+
+/// Paints an image fetched through [imageLoader].
+///
+/// Deliberately not a FutureBuilder over a fresh future: the whole point is
+/// that scrolling back to a tile repaints from bytes we already hold instead
+/// of asking the network again. Bytes already in the cache paint on the first
+/// frame, with no spinner flash.
+class _LoadedImage extends StatefulWidget {
+  const _LoadedImage({required this.url, this.name, this.number});
+
+  final String url;
+  final String? name;
+  final String? number;
+
+  @override
+  State<_LoadedImage> createState() => _LoadedImageState();
+}
+
+class _LoadedImageState extends State<_LoadedImage> {
+  Uint8List? _bytes;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  @override
+  void didUpdateWidget(_LoadedImage old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _bytes = null;
+      _failed = false;
+      _start();
+    }
+  }
+
+  void _start() {
+    final ready = imageLoader.cached(widget.url);
+    if (ready != null) {
+      _bytes = ready;
+      return;
+    }
+    final url = widget.url;
+    imageLoader.load(url).then((bytes) {
+      // The tile may have been recycled onto another card while we waited.
+      if (!mounted || url != widget.url) return;
+      setState(() {
+        _bytes = bytes;
+        _failed = bytes == null;
+      });
+    });
+  }
+
+  void _retry() {
+    imageLoader.retryFailures();
+    setState(() => _failed = false);
+    _start();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes != null) {
+      return Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) =>
+            _Placeholder(name: widget.name, number: widget.number, reason: 'Unreadable image'),
+      );
+    }
+    if (_failed) {
+      return _Placeholder(
+        name: widget.name,
+        number: widget.number,
+        reason: 'Tap to retry',
+        onTap: _retry,
+      );
+    }
+    return const _Loading();
   }
 }
 
@@ -61,16 +143,17 @@ class _Loading extends StatelessWidget {
 }
 
 class _Placeholder extends StatelessWidget {
-  const _Placeholder({this.name, this.number, required this.reason});
+  const _Placeholder({this.name, this.number, required this.reason, this.onTap});
   final String? name;
   final String? number;
   final String reason;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    return Container(
+    final body = Container(
       color: scheme.surfaceContainerHighest,
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -91,10 +174,12 @@ class _Placeholder extends StatelessWidget {
           const SizedBox(height: 4),
           Text(reason,
               textAlign: TextAlign.center,
-              style: text.labelSmall?.copyWith(color: scheme.outline)),
+              style: text.labelSmall?.copyWith(
+                  color: onTap == null ? scheme.outline : scheme.primary)),
         ],
       ),
     );
+    return onTap == null ? body : InkWell(onTap: onTap, child: body);
   }
 }
 
@@ -164,6 +249,69 @@ class CardResultTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// A small non-card image (a set logo or symbol) through the same throttled
+/// loader, so the logo list cannot starve the card grid of request slots.
+/// Renders nothing at all when the asset is missing — a lot of sets have no
+/// logo, and an error icon in a list is worse than a gap.
+class RemoteIcon extends StatelessWidget {
+  const RemoteIcon({super.key, required this.url, this.fit = BoxFit.contain, this.fallback});
+
+  final String? url;
+  final BoxFit fit;
+  final Widget? fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    if (url == null) return fallback ?? const SizedBox.shrink();
+    return _LoadedIcon(url: url!, fit: fit, fallback: fallback);
+  }
+}
+
+class _LoadedIcon extends StatefulWidget {
+  const _LoadedIcon({required this.url, required this.fit, this.fallback});
+  final String url;
+  final BoxFit fit;
+  final Widget? fallback;
+
+  @override
+  State<_LoadedIcon> createState() => _LoadedIconState();
+}
+
+class _LoadedIconState extends State<_LoadedIcon> {
+  Uint8List? _bytes;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bytes = imageLoader.cached(widget.url);
+    if (_bytes != null) {
+      _done = true;
+      return;
+    }
+    final url = widget.url;
+    imageLoader.load(url).then((b) {
+      if (!mounted || url != widget.url) return;
+      setState(() {
+        _bytes = b;
+        _done = true;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes != null) {
+      return Image.memory(bytes,
+          fit: widget.fit,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => widget.fallback ?? const SizedBox.shrink());
+    }
+    return _done ? (widget.fallback ?? const SizedBox.shrink()) : const SizedBox.shrink();
   }
 }
 

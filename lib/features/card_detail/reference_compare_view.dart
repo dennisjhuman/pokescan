@@ -1,5 +1,6 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+
+import '../../shared/widgets/card_thumb.dart';
 
 import '../../core/constants.dart';
 import '../scan/scan_outcome.dart';
@@ -44,14 +45,10 @@ class ReferenceCompareView extends StatelessWidget {
               Expanded(
                 child: _Pane(
                   label: 'Official',
-                  child: referenceUrl == null
-                      ? const Center(child: Icon(Icons.image_not_supported))
-                      : CachedNetworkImage(
-                          imageUrl: referenceUrl!,
-                          fit: BoxFit.contain,
-                          placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
-                          errorWidget: (_, _, _) => const Center(child: Icon(Icons.broken_image)),
-                        ),
+                  child: RemoteIcon(
+                    url: referenceUrl,
+                    fallback: const Center(child: Icon(Icons.image_not_supported)),
+                  ),
                 ),
               ),
             ],
