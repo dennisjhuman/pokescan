@@ -32,10 +32,16 @@ enum CardVariant {
 
 /// A single price with its currency.
 class Price {
-  const Price(this.amount, this.currency, {this.source});
+  const Price(this.amount, this.currency, {this.source, this.estimate = false});
   final double amount;
-  final String currency; // "EUR" | "USD"
-  final String? source; // e.g. "cardmarket.trend"
+  final String currency; // "USD" | "EUR"
+  final String? source; // e.g. "tcgplayer.market"
+
+  /// True when this isn't a real market price for this exact variant, just
+  /// the closest thing available — a Cardmarket average that lumps variants
+  /// together, or a TCGplayer mid/low when no market price is published.
+  /// Shown to the user as "estimate" rather than a value.
+  final bool estimate;
 
   @override
   String toString() => '$amount $currency';
@@ -146,10 +152,15 @@ class TcgplayerPricing {
         CardVariant.wPromo => ['normal', 'holofoil'],
       };
 
-  TcgplayerVariantPricing? forVariant(CardVariant v) {
+  TcgplayerVariantPricing? forVariant(CardVariant v) => entryFor(v)?.$2;
+
+  /// The matched key alongside its prices, so a displayed value can say which
+  /// TCGplayer listing it came from (`reverse-holofoil` rather than just
+  /// "TCGplayer").
+  (String, TcgplayerVariantPricing)? entryFor(CardVariant v) {
     for (final k in keysFor(v)) {
       final p = variants[k];
-      if (p != null) return p;
+      if (p != null) return (k, p);
     }
     return null;
   }
@@ -170,35 +181,36 @@ class CardPricing {
             : null,
       );
 
-  /// The "value" of one copy in [variant], per CLAUDE.md:
-  /// Cardmarket trend → Cardmarket avg → TCGplayer market. Holo variants
-  /// prefer the `-holo` Cardmarket fields. Reverse has no Cardmarket field,
-  /// so it goes straight to TCGplayer's reverse-holofoil, then the base price.
+  /// The "value" of one copy in [variant].
+  ///
+  /// TCGplayer's USD market price first, because it is quoted *per variant* —
+  /// a reverse holo and a plain copy of the same card get their own numbers.
+  /// Cardmarket's EUR figures are a single blob for the whole card (only the
+  /// hyphenated `-holo` twins split it at all), so a reverse holo reads as the
+  /// price of the common non-holo and vice versa. That is what made the euro
+  /// figure look off. Cardmarket is kept as the fallback for cards TCGplayer
+  /// does not list (most promos), flagged [Price.estimate].
   Price? valueFor(CardVariant variant) {
     final cm = cardmarket;
-    final tp = tcgplayer?.forVariant(variant);
+    final entry = tcgplayer?.entryFor(variant);
+    final tp = entry?.$2;
+    final key = entry?.$1;
+    final holo = variant == CardVariant.holo || variant == CardVariant.firstEdition;
 
+    Price? usd(double? v, String src, {bool estimate = false}) => v == null
+        ? null
+        : Price(v, TcgplayerPricing.unit, source: 'tcgplayer.$key.$src', estimate: estimate);
     Price? eur(double? v, String src) =>
-        v == null ? null : Price(v, CardmarketPricing.unit, source: 'cardmarket.$src');
-    Price? usd(double? v, String src) =>
-        v == null ? null : Price(v, TcgplayerPricing.unit, source: 'tcgplayer.$src');
+        v == null ? null : Price(v, CardmarketPricing.unit, source: 'cardmarket.$src', estimate: true);
 
-    switch (variant) {
-      case CardVariant.holo:
-      case CardVariant.firstEdition:
-        return eur(cm?.trendHolo, 'trend-holo') ??
-            eur(cm?.avgHolo, 'avg-holo') ??
-            eur(cm?.trend, 'trend') ??
-            eur(cm?.avg, 'avg') ??
-            usd(tp?.market, 'market');
-      case CardVariant.reverse:
-        return usd(tp?.market, 'reverse-holofoil.market') ??
-            eur(cm?.trend, 'trend') ??
-            eur(cm?.avg, 'avg');
-      case CardVariant.normal:
-      case CardVariant.wPromo:
-        return eur(cm?.trend, 'trend') ?? eur(cm?.avg, 'avg') ?? usd(tp?.market, 'market');
-    }
+    return usd(tp?.market, 'market') ??
+        // No market price published yet (fresh sets): mid, then low.
+        usd(tp?.mid, 'mid', estimate: true) ??
+        usd(tp?.low, 'low', estimate: true) ??
+        (holo ? eur(cm?.trendHolo, 'trend-holo') ?? eur(cm?.avgHolo, 'avg-holo') : null) ??
+        eur(cm?.trend, 'trend') ??
+        eur(cm?.avg, 'avg') ??
+        eur(cm?.low, 'low');
   }
 }
 
@@ -432,4 +444,13 @@ class TcgSet {
       );
 }
 
-double? _d(Object? v) => v == null ? null : (v as num).toDouble();
+/// Prices only. TCGdex publishes `0` for a field it has no data for —
+/// `trend-holo: 0` on a promo that has never had a holo sale, for instance —
+/// and a zero sliding into the fallback chain reads as "this card is
+/// worthless" rather than "we don't know". No price field can meaningfully be
+/// zero, so zero means absent.
+double? _d(Object? v) {
+  if (v is! num) return null;
+  final d = v.toDouble();
+  return d > 0 ? d : null;
+}

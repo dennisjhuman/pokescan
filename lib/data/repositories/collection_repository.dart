@@ -43,15 +43,20 @@ class CollectionSummary {
   const CollectionSummary({
     required this.cardCount,
     required this.uniqueCards,
-    required this.eurTotal,
-    required this.usdOnlyTotal,
+    required this.usdTotal,
+    required this.eurOnlyTotal,
     required this.unpriced,
   });
 
   final int cardCount;
   final int uniqueCards;
-  final double eurTotal;
-  final double usdOnlyTotal;
+  /// Sum of everything priced in USD (TCGplayer), the primary figure.
+  final double usdTotal;
+
+  /// Sum of the cards TCGplayer does not list, which fall back to Cardmarket
+  /// euros. Kept apart rather than converted — there is no rate here, and
+  /// mixing the two would invent precision.
+  final double eurOnlyTotal;
   final int unpriced;
 
   static CollectionSummary of(List<CollectionEntry> entries) {
@@ -72,8 +77,8 @@ class CollectionSummary {
     return CollectionSummary(
       cardCount: count,
       uniqueCards: ids.length,
-      eurTotal: eur,
-      usdOnlyTotal: usd,
+      usdTotal: usd,
+      eurOnlyTotal: eur,
       unpriced: unpriced,
     );
   }

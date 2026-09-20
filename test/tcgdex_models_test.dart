@@ -60,19 +60,32 @@ void main() {
       expect(p.tcgplayer!.forVariant(CardVariant.holo), isNull);
     });
 
-    test('valueFor: normal prefers cardmarket trend', () {
+    test('valueFor: normal prefers the tcgplayer market price for that variant', () {
       final p = TcgCard.fromJson(fixture('swsh3-136')).pricing!;
       final v = p.valueFor(CardVariant.normal)!;
-      expect(v.currency, 'EUR');
-      expect(v.amount, p.cardmarket!.trend);
-      expect(v.source, 'cardmarket.trend');
+      expect(v.currency, 'USD');
+      expect(v.amount, p.tcgplayer!.forVariant(CardVariant.normal)!.market);
+      expect(v.source, 'tcgplayer.normal.market');
+      expect(v.estimate, isFalse);
     });
 
-    test('valueFor: holo prefers trend-holo', () {
+    test('valueFor: the two variants of one card get different prices', () {
+      // The whole point of leading with TCGplayer: Cardmarket quotes one
+      // figure per card, so normal and reverse would read identically.
+      final p = TcgCard.fromJson(fixture('swsh3-136')).pricing!;
+      final normal = p.valueFor(CardVariant.normal)!;
+      final reverse = p.valueFor(CardVariant.reverse)!;
+      expect(normal.amount, isNot(reverse.amount));
+    });
+
+    test('valueFor: falls back to cardmarket, flagged as an estimate', () {
+      // swsh3-20 is one of the cards TCGdex returns with tcgplayer null.
       final p = TcgCard.fromJson(fixture('swsh3-20')).pricing!;
       final v = p.valueFor(CardVariant.holo)!;
+      expect(v.currency, 'EUR');
       expect(v.amount, p.cardmarket!.trendHolo);
       expect(v.source, 'cardmarket.trend-holo');
+      expect(v.estimate, isTrue);
     });
 
     test('valueFor: reverse uses tcgplayer reverse-holofoil market', () {
@@ -80,23 +93,48 @@ void main() {
       final v = p.valueFor(CardVariant.reverse)!;
       expect(v.currency, 'USD');
       expect(v.source, 'tcgplayer.reverse-holofoil.market');
+      expect(v.estimate, isFalse);
     });
 
-    test('valueFor: fallback chain trend → avg → tcgplayer market', () {
-      const p = CardPricing(
+    test('a published zero is absent, not free', () {
+      // TCGdex answers `trend-holo: 0` on promos that have never had a holo
+      // sale. Taking it literally showed a real card as worth nothing.
+      final p = CardPricing.fromJson(const {
+        'cardmarket': {'updated': null, 'trend-holo': 0, 'trend': 0, 'avg': 1.96},
+      });
+      expect(p.cardmarket!.trendHolo, isNull);
+      expect(p.cardmarket!.trend, isNull);
+      final v = p.valueFor(CardVariant.holo)!;
+      expect(v.amount, 1.96);
+      expect(v.source, 'cardmarket.avg');
+    });
+
+    test('valueFor: fallback chain market → mid → low → cardmarket', () {
+      const withMarket = CardPricing(
         cardmarket: CardmarketPricing(updated: null, avg: 1.5),
         tcgplayer: TcgplayerPricing(updated: null, variants: {
           'normal': TcgplayerVariantPricing(market: 2.0),
         }),
       );
-      expect(p.valueFor(CardVariant.normal)!.amount, 1.5);
-      const p2 = CardPricing(
-        cardmarket: CardmarketPricing(updated: null),
+      expect(withMarket.valueFor(CardVariant.normal)!.amount, 2.0);
+
+      // A brand-new set has asking prices but no market price yet.
+      const noMarket = CardPricing(
         tcgplayer: TcgplayerPricing(updated: null, variants: {
-          'normal': TcgplayerVariantPricing(market: 2.0),
+          'normal': TcgplayerVariantPricing(mid: 3.0, low: 1.0),
         }),
       );
-      expect(p2.valueFor(CardVariant.normal)!.currency, 'USD');
+      final mid = noMarket.valueFor(CardVariant.normal)!;
+      expect(mid.amount, 3.0);
+      expect(mid.estimate, isTrue);
+
+      // Nothing on TCGplayer at all: euros, clearly marked.
+      const cmOnly = CardPricing(cardmarket: CardmarketPricing(updated: null, avg: 1.5));
+      final eur = cmOnly.valueFor(CardVariant.normal)!;
+      expect(eur.amount, 1.5);
+      expect(eur.currency, 'EUR');
+      expect(eur.estimate, isTrue);
+
       expect(const CardPricing().valueFor(CardVariant.normal), isNull);
     });
   });

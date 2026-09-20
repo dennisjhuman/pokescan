@@ -25,11 +25,11 @@ class CollectionSummaryBar extends StatelessWidget {
                 children: [
                   Text('Collection value', style: text.labelMedium),
                   Text(
-                    fmtMoney(summary.eurTotal, 'EUR'),
+                    fmtMoney(summary.usdTotal, 'USD'),
                     style: text.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  if (summary.usdOnlyTotal > 0)
-                    Text('+ ${fmtMoney(summary.usdOnlyTotal, 'USD')} priced in USD only',
+                  if (summary.eurOnlyTotal > 0)
+                    Text('+ ${fmtMoney(summary.eurOnlyTotal, 'EUR')} with no USD listing',
                         style: text.bodySmall),
                   if (summary.unpriced > 0)
                     Text('${summary.unpriced} unpriced', style: text.bodySmall),

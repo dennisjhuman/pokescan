@@ -36,6 +36,32 @@ final cardProvider = FutureProvider.family<TcgCard, String>((ref, id) {
   return ref.watch(cardRepositoryProvider).getCard(id);
 });
 
+/// Like [cardProvider] but null instead of an error when the card does not
+/// exist. The finder asks for several candidate ids at once and most of them
+/// are expected to miss — a 404 there is an answer, not a failure.
+final maybeCardProvider = FutureProvider.family<TcgCard?, String>((ref, id) async {
+  ref.keepAlive();
+  try {
+    return await ref.watch(cardRepositoryProvider).getCard(id);
+  } on TcgdexException catch (e) {
+    if (e.isNotFound) return null;
+    rethrow;
+  }
+});
+
+/// Every card in a set, for browsing by set when the number is unreadable.
+final setCardsProvider = FutureProvider.family<TcgSet, String>((ref, id) {
+  ref.keepAlive();
+  return ref.watch(cardRepositoryProvider).getSet(id);
+});
+
+/// Name search results. Kept in a provider so the finder survives rebuilds
+/// and a repeated search is free.
+final cardSearchProvider = FutureProvider.family<List<CardBrief>, String>((ref, name) {
+  ref.keepAlive();
+  return ref.watch(cardRepositoryProvider).searchByName(name);
+});
+
 /// Whole collection, live.
 final collectionProvider = StreamProvider<List<CollectionEntry>>(
     (ref) => ref.watch(collectionRepositoryProvider).watchAll());

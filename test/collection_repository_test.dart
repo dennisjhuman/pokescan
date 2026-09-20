@@ -28,6 +28,7 @@ void main() {
     final entries = await repo.watchAll().firstWhere((l) => l.length == 2);
     final zard = entries.firstWhere((e) => e.item.cardId == 'swsh3-20');
     expect(zard.card?.name, 'Charizard VMAX');
+    // swsh3-20's fixture has tcgplayer null, so it falls back to euros.
     expect(zard.unitValue?.currency, 'EUR');
     expect(zard.totalValue?.amount, closeTo(zard.unitValue!.amount * 2, 1e-9));
 
@@ -35,7 +36,9 @@ void main() {
     expect(summary.cardCount, 3);
     expect(summary.uniqueCards, 2);
     final furret = entries.firstWhere((e) => e.item.cardId == 'swsh3-136');
-    expect(summary.eurTotal, closeTo(zard.totalValue!.amount + furret.totalValue!.amount, 1e-9));
+    expect(furret.unitValue?.currency, 'USD');
+    expect(summary.usdTotal, closeTo(furret.totalValue!.amount, 1e-9));
+    expect(summary.eurOnlyTotal, closeTo(zard.totalValue!.amount, 1e-9));
     expect(summary.unpriced, 0);
   });
 
@@ -53,11 +56,10 @@ void main() {
     expect(() => repo.add(cardId: 'nope-1', variant: CardVariant.normal), throwsA(anything));
   });
 
-  test('USD-only value goes to usdOnlyTotal', () {
-    const cm = CardmarketPricing(updated: null);
-    const tp = TcgplayerPricing(updated: null, variants: {
-      'reverse-holofoil': TcgplayerVariantPricing(market: 4.0),
-    });
+  test('a card with no USD listing lands in eurOnlyTotal, not the headline', () {
+    const cm = CardmarketPricing(updated: null, trend: 4.0);
+    // Cardmarket prices the card but TCGplayer has no reverse listing.
+    const tp = TcgplayerPricing(updated: null, variants: {});
     final card = TcgCard(
       id: 'x-1',
       localId: '1',
@@ -79,7 +81,7 @@ void main() {
       card: card,
     );
     final s = CollectionSummary.of([entry]);
-    expect(s.eurTotal, 0);
-    expect(s.usdOnlyTotal, 8.0);
+    expect(s.usdTotal, 0);
+    expect(s.eurOnlyTotal, 8.0);
   });
 }

@@ -5,12 +5,14 @@
 /// this file is unit-testable with hand-written fixtures.
 ///
 /// Strategy (CLAUDE.md Phase 3), stop at the first confident step:
-///  1. Card number `NNN/TTT` in the bottom band → set total → candidate sets
-///     (combined with a printed set code like `PAR` when present).
+///  1. The bottom band, joined into one string and handed to
+///     [CardQueryParser] — the same code the search box uses, so a number
+///     typed by hand and a number read by OCR resolve identically.
 ///  2. Card name from the largest text line in the top band.
 ///  3. Otherwise fall back to a name search (caller's job).
 library;
 
+import '../../data/tcgdex/card_query.dart';
 import '../../data/tcgdex/set_info.dart';
 import '../../data/tcgdex/set_resolver.dart';
 
@@ -36,6 +38,7 @@ class ParsedCard {
     this.number,
     this.total,
     this.setCode,
+    this.regulationMark,
     this.name,
     this.hp,
     this.attackNames = const [],
@@ -51,6 +54,10 @@ class ParsedCard {
 
   /// Printed set abbreviation (`PAR`, `MEW`) if seen next to the number.
   final String? setCode;
+
+  /// The lone regulation-mark letter (`D`–`I`) if one was read. Not a set
+  /// code — it just narrows the years the card can be from.
+  final String? regulationMark;
 
   final String? name;
   final int? hp;
@@ -74,69 +81,35 @@ class ParsedCard {
 }
 
 class CardTextParser {
-  CardTextParser([SetResolver? resolver]) : _resolver = resolver ?? SetResolver();
+  CardTextParser([SetResolver? resolver]) : _query = CardQueryParser(resolver ?? SetResolver());
 
-  final SetResolver _resolver;
+  final CardQueryParser _query;
 
-  /// The number line sits in the bottom ~22% of a modern card.
+  /// The number line sits in the bottom ~28% of a modern card.
   static const _bottomBand = 0.72;
 
-  /// Name + HP sit in the top ~16%.
+  /// Name + HP sit in the top ~18%.
   static const _topBand = 0.18;
 
-  static final _numberRe = RegExp(r'([A-Z]{0,4}\s?[0-9OIlSB]{1,3})\s*/\s*([A-Z]{0,4}\s?[0-9OIlSB]{1,3})');
-  static final _promoRe = RegExp(r'\b(SWSH|SVP|SM|XY|BW|DP|HGSS|SV|SWSHP|GG|TG)\s?([0-9OIl]{2,3})\b');
-  static final _setCodeRe = RegExp(r'\b([A-Z]{2,4})\b');
   static final _hpRe = RegExp(r'(?:HP\s*([0-9OIl]{2,3}))|(?:([0-9OIl]{2,3})\s*HP)', caseSensitive: false);
   static final _stagePrefixRe = RegExp(r'^(basic|stage\s*[12]|v(max|star)?|ex|gx|mega|level\s*up|item|supporter|stadium|tool|energy)\s+', caseSensitive: false);
 
   ParsedCard parse(List<OcrLine> lines) {
-    final bottom = lines.where((l) => l.centerY >= _bottomBand).toList();
-    final top = lines.where((l) => l.centerY <= _topBand).toList();
+    final sorted = [...lines]..sort((a, b) => a.centerY.compareTo(b.centerY));
+    final bottom = sorted.where((l) => l.centerY >= _bottomBand).toList();
+    final top = sorted.where((l) => l.centerY <= _topBand).toList();
 
-    // 1. Number / total.
-    String? number;
-    int? total;
-    String? setCode;
-    // Prefer bottom lines, but scan everything: crops are imperfect.
-    for (final l in [...bottom, ...lines.where((l) => l.centerY < _bottomBand)]) {
-      final m = _numberRe.firstMatch(l.text.toUpperCase());
-      if (m == null) continue;
-      final n = _cleanNumber(m.group(1)!);
-      final t = int.tryParse(_digits(m.group(2)!));
-      if (n == null || t == null || t == 0) continue;
-      number = n;
-      total = t;
-      setCode = _findSetCode(l.text, exclude: {n});
-      break;
-    }
-    // Promo without a slash: "SWSH001", "SVP 012".
-    if (number == null) {
-      for (final l in bottom) {
-        final m = _promoRe.firstMatch(l.text.toUpperCase().replaceAll(' ', ''));
-        if (m == null) continue;
-        number = '${m.group(1)}${_digits(m.group(2)!)}';
-        setCode = _promoSetFor(m.group(1)!);
-        break;
-      }
-    }
-    // Set code may be on its own line near the number (SV era: "PAR EN" line
-    // is sometimes split from "042/193").
-    if (number != null && setCode == null) {
-      for (final l in bottom) {
-        final c = _findSetCode(l.text, exclude: {number});
-        if (c != null) {
-          setCode = c;
-          break;
-        }
-      }
-    }
+    // 1. Number / total / set code. The bottom band first, because that is
+    //    where they are printed; the whole card as a fallback, because a
+    //    slightly-off crop can push the line up out of the band.
+    var q = _query.parse(_joined(bottom));
+    if (!q.hasNumber) q = _query.parse(_joined(sorted));
 
     // 2. Name + HP from the top band. Name = tallest line, after stripping
     //    stage words and HP fragments.
     String? name;
     int? hp;
-    for (final l in lines) {
+    for (final l in sorted) {
       final m = _hpRe.firstMatch(l.text);
       if (m != null) {
         hp = int.tryParse(_digits(m.group(1) ?? m.group(2)!));
@@ -154,69 +127,34 @@ class CardTextParser {
     // 3. Attack names: lines in the middle band that start with a capital
     //    word and end in a damage number.
     final attacks = <String>[];
-    for (final l in lines.where((l) => l.centerY > _topBand + 0.35 && l.centerY < _bottomBand)) {
+    for (final l in sorted.where((l) => l.centerY > _topBand + 0.35 && l.centerY < _bottomBand)) {
       final m = RegExp(r'^([A-Z][A-Za-z\x27\-\s]{2,30}?)\s+(\d{2,3}\+?×?)$').firstMatch(l.text.trim());
       if (m != null) attacks.add(m.group(1)!.trim());
     }
 
-    final candidates = number == null
-        ? const <SetInfo>[]
-        : _resolver.resolve(number: number, total: total, code: setCode);
-
     return ParsedCard(
-      number: number,
-      total: total,
-      setCode: setCode,
+      number: q.number,
+      total: q.total,
+      setCode: q.setCode,
+      regulationMark: q.regulationMark,
       name: name,
       hp: hp,
       attackNames: attacks,
-      candidateSets: candidates,
+      candidateSets: q.hasNumber ? _query.candidateSets(q) : const [],
     );
   }
 
-  /// Digit-only OCR fixups: O→0, I/l→1, S→5, B→8.
+  /// OCR lines as one string, in reading order. The set code and the number
+  /// often land in separate blocks (`PAR EN` | `185/182`), so they have to be
+  /// looked at together.
+  static String _joined(List<OcrLine> lines) => lines.map((l) => l.text).join(' ');
+
   static String _digits(String s) => s
       .replaceAll('O', '0')
       .replaceAll('o', '0')
       .replaceAll('I', '1')
       .replaceAll('l', '1')
-      .replaceAll('S', '5')
-      .replaceAll('B', '8')
       .replaceAll(RegExp(r'[^0-9]'), '');
-
-  /// "O2O" → "020"; "I36" → "136"; "TG12" → "TG12"; "SWSH O61" → "SWSH061".
-  /// Only known gallery/promo prefixes count as letters — a lone leading
-  /// `I`/`O`/`S`/`B` is an OCR'd digit.
-  static const _knownPrefixes = {'TG', 'GG', 'SWSH', 'SVP', 'SV', 'SM', 'XY', 'BW', 'DP', 'HGSS', 'RC', 'SH'};
-
-  static String? _cleanNumber(String raw) {
-    final s = raw.replaceAll(' ', '');
-    var letters = RegExp(r'^([A-Z]{1,4})').firstMatch(s)?.group(1) ?? '';
-    if (!_knownPrefixes.contains(letters)) letters = '';
-    final digits = _digits(s.substring(letters.length));
-    if (digits.isEmpty) return null;
-    return '$letters$digits';
-  }
-
-  String? _findSetCode(String text, {Set<String> exclude = const {}}) {
-    for (final m in _setCodeRe.allMatches(text.toUpperCase())) {
-      final c = m.group(1)!;
-      if (c == 'HP' || c == 'EN' || c == 'LV' || exclude.contains(c)) continue;
-      if (_resolver.byCode(c) != null) return c;
-    }
-    return null;
-  }
-
-  static String? _promoSetFor(String prefix) => switch (prefix) {
-        'SWSH' || 'SWSHP' => 'swshp',
-        'SVP' => 'svp',
-        'SM' => 'smp',
-        'XY' => 'xyp',
-        'BW' => 'bwp',
-        'DP' => 'dpp',
-        'HGSS' => 'hgssp',
-        _ => null,
-      };
 
   static String _cleanName(String raw) {
     var s = raw.replaceAll(_hpRe, ' ');

@@ -13,7 +13,7 @@ unless explicitly added later.
 | Card data + prices | TCGdex REST API (`https://api.tcgdex.net/v2/{lang}/...`) | Free, no key, pricing embedded in card response (Cardmarket EUR + TCGplayer USD) |
 | Identification | On-device OCR (Google ML Kit text recognition) → lookup in TCGdex | No per-scan API cost |
 | Storage | SQLite via `drift` (or `sqflite`) | Offline-first, personal device |
-| Currency | EUR (Cardmarket) primary, USD secondary | Denmark-based |
+| Currency | USD (TCGplayer) primary, EUR (Cardmarket) secondary | TCGplayer prices per variant; Cardmarket is one blob per card, so it misreads reverse/holo. Changed 2026-09-20. |
 | Fake detection | Heuristic warnings + side-by-side reference image | No reliable fake API exists; never present a verdict, only signals |
 | Grading | Out of scope | Deliberately dropped |
 
@@ -29,6 +29,7 @@ notes below are from memory and may be slightly off.
 | 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — needs the physical iPhone; see below |
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | CSV export and price-change badge done; Japanese support not started |
+| 6 Findability | Single-box finder, candidate artwork, set browser — done 2026-09-20, verified in browser |
 | Shipping | Web app live and installable; iOS build for scanning only |
 
 ### Shipping (decided 2026-09-16)
@@ -127,6 +128,53 @@ Show a **"Things to check"** panel on the detail page, never a "FAKE" label.
   browser reports as a CORS failure. Valid card images fetch fine on web, so
   the colour check should work there too.
 
+### Phase 6 — Findability (added 2026-09-20, after testing with real cards)
+
+The three-field number / total / set-code form asked the user to know which of
+the things printed on the card was the set code. On a real card that is anyone's
+guess. Six cards in hand, six different bottom edges:
+
+| Printed | What it is |
+|---|---|
+| `E 123/203` | `E` is the **regulation mark**, not a set. Total → Evolving Skies. |
+| `PAR EN 185/182` | `PAR` is a real set code, `EN` the language. 185 > 182 = secret rare. |
+| `SVP EN 194 ★` | Promo. No total at all. |
+| `SWSH153` | Promo, code glued to the number. |
+| `M6 058/076 RR` | Japanese. `RR` is a rarity. |
+| `swsh3-20` | A TCGdex id. |
+
+What changed:
+
+- **One search box.** `data/tcgdex/card_query.dart` (pure Dart, heavily
+  unit-tested against all six of the above) reads number, total, set code,
+  regulation mark, rarity code and language out of whatever gets typed.
+  `card_text_parser.dart` now delegates to it, so a number read by OCR and a
+  number typed by hand resolve identically.
+- **Pick by artwork, not by set symbol.** When a number fits several sets, the
+  candidate cards are fetched and shown as big images. "Which of these pictures
+  is the card in your hand?" is answerable; "which 3 mm monochrome symbol is
+  this?" is not. `features/scan/card_results.dart`.
+- **Name results are grouped by set, newest first.** The set is derived offline
+  from the id prefix (`SetResolver.setForCardId`), so a "Pikachu" search is
+  labelled sections rather than a wall of 150 identical rows.
+- **Thumbnails are card-shaped and ~190 px** (`shared/widgets/card_thumb.dart`),
+  with a real "no artwork" tile carrying the name and number — TCGdex genuinely
+  has no image for a lot of older promos, and the old 40 px broken-image icon
+  told the user nothing.
+- **Browse by set** (`features/scan/set_browser.dart`): search sets by name,
+  year or code, see the logo at a legible size, then pick out of the set's grid.
+  The escape hatch for an unreadable number.
+- **Dead ends explain themselves.** An unknown code says so and offers near
+  misses (`SetResolver.didYouMean`); a number above the set size is named as a
+  secret rare rather than looking like an error.
+- **Japanese is detected, not attempted.** Kana/kanji, or an unrecognised code
+  shaped like a Japanese set id (`M6`, `SV1a`), shows a notice. Lookup stays
+  English-only — see the open question below.
+- Search is debounced as you type (450 ms), because Enter is not reliable on
+  Flutter web.
+
+Done when: all six cards above resolve from their printed bottom edge. They do.
+
 ### Phase 5 — Polish (only if still enjoying it)
 - Export collection to CSV.
 - Price-change badge on cards whose trend moved >10 % since last refresh.
@@ -135,6 +183,14 @@ Show a **"Things to check"** panel on the detail page, never a "FAKE" label.
   to compare across currencies, so a Cardmarket-to-TCGplayer fallback does not
   read as a huge move.
 - Japanese card support: switch `{lang}` to `ja` in TCGdex calls; OCR with ML Kit Japanese model.
+  **Blocked on a decision, not on effort.** `GET /v2/ja/cards/M6-058` works fine
+  and is priced, but Japanese set ids collide with English ones — JP `SV10` is
+  ロケット団の栄光, EN `sv10` is Destined Rivals, and the cache lowercases its
+  keys. So `lang` has to become part of the card id everywhere: cache key,
+  route, `collection_items.card_id`, CSV export, fake signals. Until then the
+  finder detects Japanese cards and says so rather than returning the wrong
+  English card. Two of the six test cards are Japanese, so this is the next
+  real chunk of work.
 
 ## Folder structure
 
@@ -149,6 +205,8 @@ lib/
     tcgdex/
       tcgdex_client.dart       # HTTP calls
       tcgdex_models.dart       # Card, Set, Pricing (json_serializable)
+      card_query.dart          # typed/OCR'd text → number, total, set code
+      set_resolver.dart        # printed code/total → set ids, offline
     db/
       database.dart            # drift database + tables
       collection_dao.dart
@@ -161,8 +219,10 @@ lib/
       scan_screen.dart
       card_guide_overlay.dart
       ocr_service.dart         # ML Kit wrapper
-      card_text_parser.dart    # regex / heuristics → candidate ids
-      manual_entry_sheet.dart
+      card_text_parser.dart    # OCR lines → CardQuery → candidate ids
+      find_card_view.dart      # the one search box
+      card_results.dart        # candidate grid + name results grouped by set
+      set_browser.dart         # browse sets by logo, then pick out of the grid
     card_detail/
       card_detail_screen.dart
       price_panel.dart
@@ -176,6 +236,7 @@ lib/
     widgets/
     utils/
 test/
+  card_query_test.dart         # the six real cards; test this heavily
   card_text_parser_test.dart   # pure-Dart, test this heavily
   tcgdex_models_test.dart
 ```
@@ -204,9 +265,18 @@ collection_items
   added_at      INTEGER
 ```
 
-Card value = price for `variant` from cached pricing (Cardmarket `trend`
-preferred, fall back to `avg`, then TCGplayer `market`). Store nothing
-computed; derive at read time.
+Card value = price for `variant` from cached pricing: TCGplayer `marketPrice`
+for that variant, then its `midPrice` / `lowPrice`, then Cardmarket
+`trend` → `avg` → `low`. Store nothing computed; derive at read time.
+
+TCGplayer leads because it quotes **per variant** — a reverse holo and a plain
+copy of the same card get their own numbers. Cardmarket quotes one blob per
+card (only the hyphenated `-holo` twins split it at all), so a reverse holo
+read as the price of the common non-holo, which is what made the euro figure
+look wrong. Anything that is not a real market price for the exact variant is
+flagged `Price.estimate` and labelled as such in the UI. The collection total
+is `usdTotal`, with anything TCGplayer does not list kept separate as
+`eurOnlyTotal` — never converted, since there is no rate here.
 
 ## TCGdex notes (verify)
 

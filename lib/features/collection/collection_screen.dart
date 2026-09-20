@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +6,7 @@ import '../../data/providers.dart';
 import '../../data/repositories/collection_repository.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../../shared/widgets/card_thumb.dart';
 import '../../shared/widgets/price_change_badge.dart';
 import '../card_detail/price_panel.dart';
 import 'collection_summary.dart';
@@ -175,7 +175,7 @@ class _GroupedBySet extends StatelessWidget {
 
   static String _groupTotal(List<CollectionEntry> es) {
     final s = CollectionSummary.of(es);
-    return '${s.cardCount} · ${fmtMoney(s.eurTotal, 'EUR')}';
+    return '${s.cardCount} · ${fmtMoney(s.usdTotal, 'USD')}';
   }
 }
 
@@ -210,14 +210,17 @@ class _EntryTile extends ConsumerWidget {
         ));
       },
       child: ListTile(
-        leading: SizedBox(
-          width: 40,
-          child: img == null
-              ? const Icon(Icons.image_not_supported)
-              : CachedNetworkImage(imageUrl: img, fit: BoxFit.contain),
+        isThreeLine: true,
+        // Big enough to tell two prints of the same Pokémon apart at a glance.
+        leading: CardThumb(
+          width: 56,
+          imageUrl: img,
+          name: c?.name,
+          number: c?.localId,
         ),
         title: Text(c?.name ?? entry.item.cardId),
         subtitle: Text(
+          '${c?.set.name ?? ''}\n'
           '${c?.numberLabel ?? ''} · ${entry.variant.label} · ${entry.item.condition}'
           '${entry.item.quantity > 1 ? ' · ×${entry.item.quantity}' : ''}',
         ),

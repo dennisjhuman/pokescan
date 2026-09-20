@@ -2,7 +2,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants.dart';
 import '../../data/providers.dart';
 import '../../data/db/database.dart';
 import '../../data/tcgdex/price_change.dart';
@@ -10,6 +9,7 @@ import '../../data/tcgdex/set_resolver.dart';
 import '../../data/tcgdex/tcgdex_models.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../../shared/widgets/card_thumb.dart';
 import '../../shared/widgets/price_change_badge.dart';
 import '../scan/scan_outcome.dart';
 import 'add_to_collection_sheet.dart';
@@ -127,19 +127,10 @@ class _Body extends ConsumerWidget {
         Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 360),
-            child: AspectRatio(
-              aspectRatio: AppConstants.cardAspectRatio,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: img == null
-                    ? const ColoredBox(color: Colors.black12, child: Icon(Icons.image_not_supported))
-                    : CachedNetworkImage(
-                        imageUrl: img,
-                        fit: BoxFit.contain,
-                        placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
-                        errorWidget: (_, _, _) => const Icon(Icons.broken_image),
-                      ),
-              ),
+            child: CardThumb(
+              imageUrl: img,
+              name: card.name,
+              number: card.numberLabel,
             ),
           ),
         ),

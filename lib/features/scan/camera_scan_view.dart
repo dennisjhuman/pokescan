@@ -8,11 +8,10 @@ import '../../shared/utils/card_crop.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/error_banner.dart';
 import 'card_guide_overlay.dart';
-import 'card_search_sheet.dart';
-import 'manual_entry_sheet.dart';
+import 'card_text_parser.dart';
+import 'find_card_view.dart';
 import 'scan_outcome.dart';
 import 'scan_pipeline.dart';
-import 'set_picker_sheet.dart';
 
 /// Camera with a card-shaped guide. Shutter → crop → OCR → parse → route.
 ///
@@ -130,14 +129,23 @@ class _CameraScanViewState extends ConsumerState<CameraScanView> with WidgetsBin
       _open(outcome, parsed.candidateIds.single);
       return;
     }
-    if (parsed.candidateSets.length > 1) {
-      final set = await showSetPicker(context, parsed.candidateSets);
-      if (set != null && mounted) _open(outcome, set.cardIdFor(parsed.number!));
-      return;
-    }
+    // Anything less than confident goes to the finder, pre-filled with
+    // whatever OCR managed to read. It shows the candidate artwork, which is
+    // the only question the user can actually answer with the card in hand.
     if (!mounted) return;
-    final id = await showCardSearchSheet(context, initialQuery: parsed.name ?? '');
+    final id = await FindCardView.pick(context, initialQuery: _seedQuery(parsed));
     if (id != null && mounted) _open(outcome, id);
+  }
+
+  /// OCR output as the finder's search box would have been typed.
+  static String _seedQuery(ParsedCard parsed) {
+    if (parsed.number != null) {
+      return [
+        if (parsed.setCode != null) parsed.setCode!,
+        parsed.total == null ? parsed.number! : '${parsed.number}/${parsed.total}',
+      ].join(' ');
+    }
+    return parsed.name ?? '';
   }
 
   /// Tie the scan to the card it was opened as, so the detail screen knows the
@@ -215,7 +223,7 @@ class _CameraScanViewState extends ConsumerState<CameraScanView> with WidgetsBin
                       _RoundButton(
                         icon: Icons.keyboard_outlined,
                         label: 'Type',
-                        onTap: _busy ? null : () => ManualEntryForm.showAsSheet(context),
+                        onTap: _busy ? null : () => FindCardView.showAsSheet(context),
                       ),
                     ],
                   ),

@@ -55,10 +55,22 @@ class TcgdexClient {
   }
 
   Future<Object?> _getJson(String path, [Map<String, String>? query]) async {
+    try {
+      return await _getJsonOnce(path, query);
+    } on FormatException {
+      // TCGdex occasionally answers with an empty or truncated body from one
+      // of its nodes (see CLAUDE.md). One retry clears it.
+      return _getJsonOnce(path, query);
+    }
+  }
+
+  Future<Object?> _getJsonOnce(String path, [Map<String, String>? query]) async {
     final uri = _uri(path, query);
     final res = await _client.get(uri, headers: const {'Accept': 'application/json'});
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      return jsonDecode(utf8.decode(res.bodyBytes));
+      final body = utf8.decode(res.bodyBytes);
+      if (body.trim().isEmpty) throw const FormatException('Empty response body');
+      return jsonDecode(body);
     }
     String message = 'HTTP ${res.statusCode}';
     try {
