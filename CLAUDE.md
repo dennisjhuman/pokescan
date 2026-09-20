@@ -30,6 +30,7 @@ notes below are from memory and may be slightly off.
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
 | 5 Polish | CSV export and price-change badge done; Japanese support not started |
 | 6 Findability | Single-box finder, candidate artwork, set browser — done 2026-09-20, verified in browser |
+| Shipping | Web live; iOS installed on the iPhone; signed Android APK builds |
 | Shipping | Web app live and installable; iOS build for scanning only |
 
 ### Shipping (decided 2026-09-16)
@@ -41,6 +42,13 @@ Two targets, same code:
   signing, no expiry, no install dance, works on any device. Deployed by
   GitHub Actions on every push to `main`, which runs `flutter analyze` and the
   test suite first. Repo is public because Pages on a free account requires it.
+- **Android build** — added 2026-09-20, and the easiest of the three. ML Kit
+  has real arm64 support here, so unlike iOS the emulator works and there is
+  no 7-day signing expiry: an APK installs and stays until it is uninstalled.
+  `flutter build apk --release --split-per-abi` and hand over
+  `app-arm64-v8a-release.apk` (~36 MB; the universal APK is 94 MB for no
+  reason). Install with `adb install -r <apk>`, or just send the file and let
+  the phone's own installer handle it.
 - **iOS build** — kept for camera scanning only, since ML Kit is mobile-only.
   Signed with a free personal team, so it stops launching after 7 days and
   needs a reinstall (`flutter build ios --release`, then
@@ -48,6 +56,34 @@ Two targets, same code:
 
 The Scan tab falls back to manual entry on web via a conditional import, since
 ML Kit is mobile-only and the cropper needs `dart:io`.
+
+### Android toolchain (set up 2026-09-20)
+
+No Android Studio. Command-line tools only, which is enough to build and to
+run an emulator, and avoids a 1.2 GB IDE for a project that does not need one:
+
+```
+brew install openjdk@17                       # formula, not the cask: no sudo
+brew install --cask android-commandlinetools
+sdkmanager --sdk_root=~/Library/Android/sdk \
+  "platform-tools" "platforms;android-36" "build-tools;36.0.0" "cmdline-tools;latest"
+flutter config --android-sdk ~/Library/Android/sdk --jdk-dir /opt/homebrew/opt/openjdk@17
+```
+
+`cmdline-tools;latest` has to be installed *into the SDK root* even though the
+cask already provides a copy elsewhere — `flutter doctor` looks for it there
+specifically and reports the toolchain as broken otherwise.
+
+Release signing: keystore at `~/.pokescan/pokescan-release.jks`, credentials in
+`android/key.properties`. Both are gitignored, and `build.gradle.kts` falls
+back to the debug key when `key.properties` is missing so a fresh clone still
+builds. The keystore is not backed up anywhere — losing it does not break
+anything already installed, but a later build could no longer *update* an
+install, which would need an uninstall first.
+
+R8 needs `android/app/proguard-rules.pro`: the ML Kit plugin names all five
+script recognizers, we bundle only Latin, and the release build fails on the
+four missing classes until they are `-dontwarn`ed.
 
 Storage is local on every platform and is never sent anywhere. On web that is
 IndexedDB, and the app requests persistent storage at startup so Safari does
