@@ -6,6 +6,9 @@
 /// against the live API on 2026-09-14 (see CLAUDE.md).
 library;
 
+import 'card_key.dart';
+import 'set_catalog.dart';
+
 /// Card variants as TCGdex names them.
 enum CardVariant {
   normal,
@@ -289,22 +292,41 @@ class SetBrief {
 
 /// Brief card as returned by `GET /cards?name=` and inside `GET /sets/{id}`.
 class CardBrief {
-  const CardBrief({required this.id, required this.localId, required this.name, this.image});
+  const CardBrief({
+    required this.id,
+    required this.localId,
+    required this.name,
+    this.image,
+    this.lang = CardKey.defaultLang,
+  });
 
   final String id;
   final String localId;
   final String name;
   final String? image;
 
-  factory CardBrief.fromJson(Map<String, dynamic> j) => CardBrief(
+  /// Which TCGdex catalogue this came from. The JSON does not say, so the
+  /// client stamps it from the request.
+  final String lang;
+
+  /// App-wide card key — see [CardKey].
+  String get key => CardKey(lang, id).key;
+
+  factory CardBrief.fromJson(Map<String, dynamic> j, {String lang = CardKey.defaultLang}) => CardBrief(
         id: j['id'] as String,
         localId: j['localId']?.toString() ?? '',
         name: j['name'] as String? ?? '',
         image: j['image'] as String?,
+        lang: lang,
       );
 
-  String? imageUrl({String quality = 'low', String ext = 'webp'}) =>
-      image == null ? null : '$image/$quality.$ext';
+  /// True when the data lists artwork; false means [imageUrl] is a guess.
+  bool get hasListedImage => image != null;
+
+  String? imageUrl({String quality = 'low', String ext = 'webp'}) {
+    final base = image ?? fallbackImageBase(lang, CardKey(lang, id).setId, localId);
+    return base == null ? null : '$base/$quality.$ext';
+  }
 }
 
 class Attack {
@@ -326,6 +348,7 @@ class Attack {
 class TcgCard {
   const TcgCard({
     required this.id,
+    this.lang = CardKey.defaultLang,
     required this.localId,
     required this.name,
     required this.set,
@@ -345,6 +368,14 @@ class TcgCard {
   });
 
   final String id;
+
+  /// Which TCGdex catalogue this came from. Not in the JSON; stamped by the
+  /// repository from the key it was fetched under.
+  final String lang;
+
+  /// App-wide card key — see [CardKey]. Use this, not [id], for routes,
+  /// the cache and collection rows.
+  String get key => CardKey(lang, id).key;
   final String localId;
   final String name;
   final SetBrief set;
@@ -362,8 +393,9 @@ class TcgCard {
   final String? updated;
   final CardPricing? pricing;
 
-  factory TcgCard.fromJson(Map<String, dynamic> j) => TcgCard(
+  factory TcgCard.fromJson(Map<String, dynamic> j, {String lang = CardKey.defaultLang}) => TcgCard(
         id: j['id'] as String,
+        lang: lang,
         localId: j['localId']?.toString() ?? '',
         name: j['name'] as String? ?? '',
         set: SetBrief.fromJson(j['set'] as Map<String, dynamic>),
@@ -372,7 +404,9 @@ class TcgCard {
             : const CardVariants(normal: true),
         image: j['image'] as String?,
         category: j['category'] as String?,
-        rarity: j['rarity'] as String?,
+        // TCGdex sends the literal string "None" for cards with no rarity
+        // (the 30th Classic Collection reprints, for one).
+        rarity: switch (j['rarity']) { final String r when r != 'None' => r, _ => null },
         illustrator: j['illustrator'] as String?,
         hp: (j['hp'] as num?)?.toInt(),
         types: (j['types'] as List?)?.cast<String>() ?? const [],
@@ -390,14 +424,24 @@ class TcgCard {
             : null,
       );
 
-  /// `high.webp` for detail, `low.webp` for lists.
-  String? imageUrl({String quality = 'high', String ext = 'webp'}) =>
-      image == null ? null : '$image/$quality.$ext';
+  /// `high.webp` for detail, `low.webp` for lists. Falls back to where the
+  /// art would conventionally live when TCGdex's data has no `image` — see
+  /// [fallbackImageBase].
+  String? imageUrl({String quality = 'high', String ext = 'webp'}) {
+    final base = image ?? fallbackImageBase(lang, set.id, localId);
+    return base == null ? null : '$base/$quality.$ext';
+  }
 
-  /// "136/189" style label using the set's official count.
+  /// True when the data itself lists artwork. When false, [imageUrl] is a
+  /// guess that may 404 — the UI says "no artwork yet" rather than "retry".
+  bool get hasListedImage => image != null;
+
+  /// "136/189" style label using the set's official count. Sets that print
+  /// no set size (the 30th Classic Collection, official 0) show the number
+  /// alone rather than "001/0".
   String get numberLabel {
     final total = set.cardCount?.official;
-    return total == null ? localId : '$localId/$total';
+    return total == null || total == 0 ? localId : '$localId/$total';
   }
 }
 
@@ -425,12 +469,12 @@ class TcgSet {
   final String? serieName;
   final String? abbreviation;
 
-  factory TcgSet.fromJson(Map<String, dynamic> j) => TcgSet(
+  factory TcgSet.fromJson(Map<String, dynamic> j, {String lang = CardKey.defaultLang}) => TcgSet(
         id: j['id'] as String,
         name: j['name'] as String? ?? '',
         cards: (j['cards'] as List?)
                 ?.whereType<Map<String, dynamic>>()
-                .map(CardBrief.fromJson)
+                .map((c) => CardBrief.fromJson(c, lang: lang))
                 .toList() ??
             const [],
         logo: j['logo'] as String?,
@@ -453,4 +497,18 @@ double? _d(Object? v) {
   if (v is! num) return null;
   final d = v.toDouble();
   return d > 0 ? d : null;
+}
+
+
+/// Where a card's art should be when TCGdex's card data does not say.
+///
+/// Measured 2026-09-21: for the Japanese M1S and M4 sets the API lists every
+/// card with no image, yet the asset host serves art for every card sampled.
+/// The art is uploaded before the data catches up. Trying the conventional
+/// path costs one request that 404s when the art really is missing (M6, M5,
+/// the 30th Classic Collection), which the image loader treats as an answer
+/// and never retries. Null when the set is unknown to the catalogue.
+String? fallbackImageBase(String lang, String setId, String localId) {
+  if (localId.isEmpty) return null;
+  return SetCatalog.instance.find(lang, setId)?.conventionalImageBase(localId);
 }

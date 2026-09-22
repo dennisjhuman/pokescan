@@ -39,7 +39,22 @@ class CollectionItems extends Table {
   IntColumn get addedAt => integer()();
 }
 
-@DriftDatabase(tables: [CardsCache, CollectionItems], daos: [CardCacheDao, CollectionDao])
+/// Sets the runtime check found that were not in the bundled index, one row
+/// per language. Stored as a JSON list rather than a row per set: it is read
+/// whole at startup, written whole after a check, and is a handful of entries
+/// long — a table of its own would be ceremony. See set_index_refresher.dart.
+class SetLists extends Table {
+  TextColumn get lang => text()();
+  TextColumn get json => text()();
+
+  /// When TCGdex was last asked, epoch ms. Drives the once-a-day check.
+  IntColumn get checkedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {lang};
+}
+
+@DriftDatabase(tables: [CardsCache, CollectionItems, SetLists], daos: [CardCacheDao, CollectionDao])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
@@ -58,7 +73,17 @@ class AppDatabase extends _$AppDatabase {
   // drift/native.dart here would pull dart:ffi into the web build.
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
+
+  Future<SetList?> setList(String lang) =>
+      (select(setLists)..where((t) => t.lang.equals(lang))).getSingleOrNull();
+
+  Future<void> putSetList(String lang, String json, DateTime checkedAt) =>
+      into(setLists).insertOnConflictUpdate(SetListsCompanion.insert(
+        lang: lang,
+        json: json,
+        checkedAt: checkedAt.millisecondsSinceEpoch,
+      ));
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -68,6 +93,10 @@ class AppDatabase extends _$AppDatabase {
             // no price-change badge until their next refresh.
             await m.addColumn(cardsCache, cardsCache.previousJson);
             await m.addColumn(cardsCache, cardsCache.previousFetchedAt);
+          }
+          if (from < 3) {
+            // Starts empty: the first check after upgrading fills it.
+            await m.createTable(setLists);
           }
         },
         beforeOpen: (details) async {

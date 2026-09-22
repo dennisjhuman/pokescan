@@ -12,6 +12,7 @@ import 'card_text_parser.dart';
 import 'find_card_view.dart';
 import 'scan_outcome.dart';
 import 'scan_pipeline.dart';
+import '../../data/tcgdex/card_key.dart';
 
 /// Camera with a card-shaped guide. Shutter → crop → OCR → parse → route.
 ///
@@ -152,7 +153,7 @@ class _CameraScanViewState extends ConsumerState<CameraScanView> with WidgetsBin
   /// crop and OCR text belong to what it is showing.
   void _open(ScanOutcome outcome, String cardId) {
     ref.read(lastScanProvider.notifier).set(outcome.resolvedAs(cardId));
-    context.push('/card/$cardId');
+    context.push(cardPath(cardId));
   }
 
   @override

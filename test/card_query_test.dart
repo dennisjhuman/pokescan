@@ -51,19 +51,33 @@ void main() {
       expect(parser.candidateIds(p), ['swshp-SWSH153']);
     });
 
-    test('Mega Rayquaza ex — Japanese card is flagged, not mis-resolved', () {
+    test('Mega Rayquaza ex — typed in Japanese, searched as Japanese', () {
       final p = q('メガレックウザex');
       expect(p.japanese, isTrue);
       expect(p.kind, CardQueryKind.name);
+      expect(p.preferredLang, 'ja');
     });
 
-    test('Groudon — Japanese set code is reported as unknown, not guessed at', () {
+    test('Mega Rayquaza ex — from its bottom edge, J M6 058/076 RR', () {
+      final p = q('J M6 058/076 RR');
+      expect(p.setCode, 'M6');
+      expect(p.regulationMark, 'J', reason: 'J is the 2026 mark, not a set');
+      expect(p.leftovers, isEmpty, reason: 'RR is a rarity');
+      expect(parser.candidateIds(p), ['ja:M6-058']);
+    });
+
+    test('Groudon — Japanese set code resolves to the Japanese set', () {
       final p = q('M6 084/076 AR');
       expect(p.number, '084');
       expect(p.total, 76);
-      expect(p.leftovers, contains('M6'), reason: 'so the UI can say it is unknown');
-      expect(p.setCode, isNull);
-      expect(parser.candidateIds(p), isEmpty, reason: 'no English set has 76 cards here');
+      expect(p.setCode, 'M6');
+      expect(p.japaneseCode, isTrue);
+      expect(parser.candidateIds(p), ['ja:M6-084']);
+    });
+
+    test('Groudon — even without the code, 084/076 finds it', () {
+      // No English set has 76 cards, so the Japanese catalogue is tried next.
+      expect(parser.candidateIds(q('084/076')), contains('ja:M6-084'));
     });
   });
 
@@ -148,24 +162,93 @@ void main() {
     });
   });
 
-  group('spotting a Japanese card without any Japanese in the text', () {
-    test('a Japanese-shaped set code is a hint, not a lookup', () {
+  group('the two catalogues, and where they collide', () {
+    test('a Japanese set code is recognised without any Japanese text', () {
       final p = q('M6 058/076 RR');
       expect(p.japanese, isFalse, reason: 'nothing Japanese was actually typed');
       expect(p.likelyJapanese, isTrue);
-      expect(parser.candidateIds(p), isEmpty);
+      expect(parser.candidateIds(p), ['ja:M6-058']);
     });
 
-    test('SV10 is a set in both languages, so it stays an English lookup', () {
-      final p = q('SV10 100/182');
-      expect(p.setCode, 'SV10');
-      expect(p.likelyJapanese, isFalse);
-      expect(parser.candidateIds(p), ['sv10-100']);
+    test('SV10 is a set in both languages; the printed total decides', () {
+      // English sv10 is Destined Rivals (182 cards); Japanese SV10 is a
+      // different set of 98. Same code, different cards.
+      expect(parser.candidateIds(q('SV10 100/182')), ['sv10-100']);
+      expect(parser.candidateIds(q('SV10 050/098')), ['ja:SV10-050']);
+    });
+
+    test('an ordinary English number never grows Japanese look-alikes', () {
+      final ids = parser.candidateIds(q('185/182'));
+      expect(ids.every((id) => !id.startsWith('ja:')), isTrue);
+    });
+
+    test('a Japanese card key goes straight through', () {
+      final p = q('ja:M6-058');
+      expect(p.kind, CardQueryKind.cardId);
+      expect(parser.candidateIds(p), ['ja:M6-058']);
+    });
+
+    test('a bare Japanese id with no prefix is still recognised', () {
+      expect(parser.candidateIds(q('M6-058')), ['ja:M6-058']);
+    });
+
+    test('a code-and-number with a hyphen is not mistaken for an id', () {
+      // PAR is a printed code, not a set id; sv04 is the id.
+      expect(parser.candidateIds(q('PAR-185')), ['sv04-185']);
     });
 
     test('a real English three-letter code is never mistaken for Japanese', () {
       expect(q('PAR EN 185/182').likelyJapanese, isFalse);
       expect(q('OBF EN 223/197').likelyJapanese, isFalse);
+    });
+  });
+
+  group('sets released after the app was built', () {
+    test('30th Celebration: 045/128 resolves', () {
+      expect(parser.candidateIds(q('045/128')), contains('30th-045'));
+    });
+
+    test('its id starts with a digit and still parses', () {
+      final p = q('30th-045');
+      expect(p.kind, CardQueryKind.cardId);
+      expect(parser.candidateIds(p), ['30th-045']);
+    });
+
+    test('a set id with a hyphen in it parses too', () {
+      expect(parser.candidateIds(q('30th-c-001')), ['30th-c-001']);
+    });
+
+    test('30C is shared by two sets; the total picks the right one', () {
+      expect(parser.candidateIds(q('30C 045/128')), ['30th-045']);
+    });
+
+    test('30C with no total offers both rather than guessing', () {
+      final ids = parser.candidateIds(q('30C 012'));
+      expect(ids, containsAll(['30th-012', '30th-c-012']));
+    });
+  });
+
+  group('products TCGdex does not have', () {
+    // Pokémon Trading Card Game Classic (2023): three 34-card decks printed
+    // CLV / CLC / CLB. TCGdex has no such sets, and its only 34-card set is
+    // Double Crisis — which the set size alone used to pick.
+    test('CLC 003/034 is not Double Crisis', () {
+      final p = q('CLC 003/034');
+      expect(p.untracked, 'CLC');
+      expect(parser.candidateIds(p), isEmpty);
+      expect(p.leftovers, isEmpty, reason: 'it is recognised, just not supported');
+    });
+
+    test('all three decks are recognised', () {
+      for (final code in ['CLV', 'CLC', 'CLB']) {
+        expect(q('$code 001/034').untracked, code);
+      }
+    });
+
+    test('a bare 003/034 is still ambiguous and still shown', () {
+      // Nothing on the input says it is the Classic deck; the artwork picker
+      // makes the mismatch obvious to someone holding the card.
+      expect(parser.candidateIds(q('003/034')), ['dc1-3']);
     });
   });
 

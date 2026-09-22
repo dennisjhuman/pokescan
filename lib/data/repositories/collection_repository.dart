@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 
 import '../db/database.dart';
 import '../tcgdex/price_change.dart';
+import '../tcgdex/card_key.dart';
 import '../tcgdex/tcgdex_models.dart';
 
 /// A collection row joined with its cached card, plus derived value.
@@ -98,24 +99,33 @@ class CollectionRepository {
     return _combine(items, cache);
   }
 
-  Stream<List<CollectionItem>> watchForCard(String cardId) =>
-      _db.collectionDao.watchForCard(cardId);
+  /// The form a card key takes in the database. `collection_items.card_id` is
+  /// a foreign key to `cards_cache.id`, and the cache stores keys lower-cased,
+  /// so anything written here has to match that exactly. Ids with capitals in
+  /// them — `swshp-SWSH153`, `swsh9tg-TG01`, every Japanese id — used to fail
+  /// the constraint when added to the collection.
+  static String storageKey(String cardKey) => CardKey.parse(cardKey).key.toLowerCase();
 
+  Stream<List<CollectionItem>> watchForCard(String cardId) =>
+      _db.collectionDao.watchForCard(storageKey(cardId));
+
+  /// [language] defaults to the one in the key, which is the only reliable
+  /// source: a Japanese card is Japanese whatever the caller forgot to pass.
   Future<int> add({
     required String cardId,
     required CardVariant variant,
     int quantity = 1,
     String condition = 'NM',
-    String language = 'en',
+    String? language,
     String? notes,
     double? pricePaid,
   }) =>
       _db.collectionDao.insert(CollectionItemsCompanion.insert(
-        cardId: cardId,
+        cardId: storageKey(cardId),
         variant: variant.name,
         quantity: Value(quantity),
         condition: Value(condition),
-        language: Value(language),
+        language: Value(language ?? CardKey.parse(cardId).lang),
         notes: Value(notes),
         pricePaid: Value(pricePaid),
         addedAt: DateTime.now().millisecondsSinceEpoch,
@@ -173,7 +183,8 @@ class CollectionRepository {
         for (final row in event) {
           if (parsedJson[row.id] != row.json) {
             parsedJson[row.id] = row.json;
-            parsed[row.id] = TcgCard.fromJson(jsonDecode(row.json) as Map<String, dynamic>);
+            parsed[row.id] = TcgCard.fromJson(jsonDecode(row.json) as Map<String, dynamic>,
+                lang: CardKey.parse(row.id).lang);
           }
           final prev = row.previousJson;
           if (prev == null) {
@@ -181,7 +192,8 @@ class CollectionRepository {
             parsedPrevious.remove(row.id);
           } else if (parsedPreviousJson[row.id] != prev) {
             parsedPreviousJson[row.id] = prev;
-            parsedPrevious[row.id] = TcgCard.fromJson(jsonDecode(prev) as Map<String, dynamic>);
+            parsedPrevious[row.id] = TcgCard.fromJson(jsonDecode(prev) as Map<String, dynamic>,
+                lang: CardKey.parse(row.id).lang);
           }
         }
         latestCards = parsed;
@@ -192,8 +204,8 @@ class CollectionRepository {
           for (final it in latestItems)
             CollectionEntry(
               item: it,
-              card: cards[it.cardId],
-              previousCard: parsedPrevious[it.cardId],
+              card: cards[storageKey(it.cardId)],
+              previousCard: parsedPrevious[storageKey(it.cardId)],
             ),
         ];
       }

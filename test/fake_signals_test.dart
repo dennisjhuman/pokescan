@@ -86,6 +86,28 @@ void main() {
       expect(warningsOf(signals), isEmpty);
     });
 
+    test('a Japanese card is not flagged for text the Latin OCR cannot read', () {
+      // The same card data, but as a Japanese print: the OCR's attempt at the
+      // name and attacks is garbage, and that is the model's fault, not a fake.
+      final japanese = TcgCard.fromJson(
+          jsonDecode(File('test/fixtures/swsh3-136.json').readAsStringSync()) as Map<String, dynamic>,
+          lang: 'ja');
+      final signals = FakeSignals.evaluate(
+        card: japanese,
+        scan: scan(name: 'Xk7 qq', attacks: ['Zzz zz zz']),
+        set: darknessAblaze,
+      );
+      expect(warningsOf(signals), isEmpty);
+    });
+
+    test('...but a wrong HP still warns on a Japanese card — digits are digits', () {
+      final japanese = TcgCard.fromJson(
+          jsonDecode(File('test/fixtures/swsh3-136.json').readAsStringSync()) as Map<String, dynamic>,
+          lang: 'ja');
+      final signals = FakeSignals.evaluate(card: japanese, scan: scan(hp: 90), set: darknessAblaze);
+      expect(warningsOf(signals), hasLength(1));
+    });
+
     test('a completely different name warns', () {
       final signals =
           FakeSignals.evaluate(card: furret, scan: scan(name: 'Pikachu'), set: darknessAblaze);

@@ -107,21 +107,35 @@ class ImageLoader {
   /// every scroll, but cleared by [retryFailures] when the user asks.
   final _failed = <String>{};
 
+  /// Urls the host answered with 404: the art is not there, which retrying
+  /// will not change. Kept apart from [_failed] so the UI can say "no artwork
+  /// yet" instead of offering a retry, and so a retry does not re-ask.
+  final _missing = <String>{};
+
   ImageByteCache get cache => _cache;
-  bool hasFailed(String url) => _failed.contains(url);
+  bool hasFailed(String url) => _failed.contains(url) || _missing.contains(url);
+
+  /// The host says this image does not exist.
+  bool isMissing(String url) => _missing.contains(url);
 
   /// Bytes if we already have them, without touching the network. Lets a
   /// widget paint immediately on scroll-back instead of flashing a spinner.
   Uint8List? cached(String url) => _cache.get(url);
 
-  ImageFetch load(String url) {
+  /// [speculative] marks a URL we guessed (the card data listed no image).
+  /// It gets fewer attempts: most guesses that fail are simply absent, and in
+  /// a browser an absent file cannot be told apart from a network error —
+  /// the asset host sends no CORS headers on a 404, so the browser reports a
+  /// failed fetch instead of the status.
+  ImageFetch load(String url, {bool speculative = false}) {
     final hit = _cache.get(url);
     if (hit != null) return Future.value(hit);
-    if (_failed.contains(url)) return Future.value(null);
+    if (_failed.contains(url) || _missing.contains(url)) return Future.value(null);
     // The braces matter: `whenComplete` waits on whatever its callback
     // returns, and `_pending.remove` hands back the very future being
     // awaited — an arrow body here deadlocks every image in the app.
-    return _pending[url] ??= _fetch(url).whenComplete(() {
+    return _pending[url] ??=
+        _fetch(url, attempts: speculative ? 2 : maxAttempts).whenComplete(() {
       _pending.remove(url);
     });
   }
@@ -129,8 +143,8 @@ class ImageLoader {
   /// Forget past failures so the next build tries again.
   void retryFailures() => _failed.clear();
 
-  Future<Uint8List?> _fetch(String url) async {
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+  Future<Uint8List?> _fetch(String url, {required int attempts}) async {
+    for (var attempt = 1; attempt <= attempts; attempt++) {
       await _acquire();
       http.Response? res;
       try {
@@ -146,14 +160,24 @@ class ImageLoader {
         _cache.put(url, bytes);
         return bytes;
       }
-      // A 404 is an answer: this set has no logo, this card has no scan.
-      // Retrying it wastes a slot that a real image could use.
-      if (res != null && res.statusCode == 404) break;
-      if (attempt < maxAttempts) await _sleep(backoffFor(attempt, _random));
+      // A 4xx is an answer, not a hiccup: 404 means this set has no logo or
+      // this card has no scan, and 400 is what every set symbol returns while
+      // TCGdex's symbol bucket is misconfigured (`InvalidBucketName`, seen
+      // 2026-09-21). Retrying either only ties up a slot that card art needs —
+      // with ~220 symbols in the set list, that was hundreds of doomed
+      // requests queued ahead of the pictures. 408 and 429 mean "later".
+      if (res != null && isPermanentFailure(res.statusCode)) {
+        _missing.add(url);
+        return null;
+      }
+      if (attempt < attempts) await _sleep(backoffFor(attempt, _random));
     }
     _failed.add(url);
     return null;
   }
+
+  static bool isPermanentFailure(int status) =>
+      status >= 400 && status < 500 && status != 408 && status != 429;
 
   /// Exponential with jitter: 200ms, 400ms, 800ms, each ±50%. The jitter
   /// matters more than the curve here — sixty tiles that all failed together

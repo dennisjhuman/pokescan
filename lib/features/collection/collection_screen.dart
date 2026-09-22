@@ -11,6 +11,7 @@ import '../../shared/widgets/price_change_badge.dart';
 import '../card_detail/price_panel.dart';
 import 'collection_summary.dart';
 import 'export_csv.dart';
+import '../../data/tcgdex/card_key.dart';
 
 enum _Sort { newest, valueDesc, name, set }
 
@@ -215,6 +216,7 @@ class _EntryTile extends ConsumerWidget {
         leading: CardThumb(
           width: 56,
           imageUrl: img,
+          speculative: c != null && !c.hasListedImage,
           name: c?.name,
           number: c?.localId,
         ),
@@ -235,7 +237,7 @@ class _EntryTile extends ConsumerWidget {
             PriceChangeBadge(change: entry.priceChange, dense: true),
           ],
         ),
-        onTap: () => context.push('/card/${entry.item.cardId}'),
+        onTap: () => context.push(cardPath(entry.item.cardId)),
       ),
     );
   }

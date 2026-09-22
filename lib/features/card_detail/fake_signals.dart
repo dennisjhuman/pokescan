@@ -168,6 +168,13 @@ class FakeSignals {
       ));
     }
 
+    // The OCR model is Latin-only. On a Japanese card it reads the number
+    // line and HP fine, but whatever it makes of the name and attacks is
+    // noise, and comparing that noise with the real Japanese text would warn
+    // about every Japanese card in the collection. HP is a number either way,
+    // so that check above still runs.
+    if (card.lang != 'en') return out;
+
     final scannedName = scan.name;
     if (scannedName != null && scannedName.trim().length >= 3) {
       final score = similarity(scannedName, card.name);

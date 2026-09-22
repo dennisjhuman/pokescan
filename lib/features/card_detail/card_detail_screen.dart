@@ -16,6 +16,9 @@ import 'fake_signals.dart';
 import 'fake_signals_panel.dart';
 import 'price_panel.dart';
 import 'variant_picker.dart';
+import '../../data/tcgdex/card_key.dart';
+import '../../data/tcgdex/reprints.dart';
+import 'package:go_router/go_router.dart';
 
 class CardDetailScreen extends ConsumerStatefulWidget {
   const CardDetailScreen({super.key, required this.cardId});
@@ -128,6 +131,8 @@ class _Body extends ConsumerWidget {
             constraints: const BoxConstraints(maxHeight: 360),
             child: CardThumb(
               imageUrl: img,
+              speculative: !card.hasListedImage,
+              retryable: true,
               name: card.name,
               number: card.numberLabel,
             ),
@@ -156,6 +161,7 @@ class _Body extends ConsumerWidget {
             ),
           ],
         ),
+        _ReprintNotice(card: card),
         if (card.hp != null || card.types.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -266,6 +272,61 @@ class _PriceSince extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// "Is yours the anniversary reprint?" — for a card that a stamped reprint
+/// shares its printed number with. A confident scan or a direct link opens the
+/// original without ever passing through the finder, so the question has to be
+/// asked here as well.
+class _ReprintNotice extends ConsumerWidget {
+  const _ReprintNotice({required this.card});
+  final TcgCard card;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reprints = ref.watch(reprintsOfProvider(card.key)).value ?? const [];
+    if (reprints.isEmpty) return const SizedBox.shrink();
+    final text = Theme.of(context).textTheme;
+    return Card(
+      margin: const EdgeInsets.only(top: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final r in reprints) ...[
+              Text(
+                'Also reprinted with the same number in the ${r.set.name}.',
+                style: text.titleSmall,
+              ),
+              Text(
+                'Does yours have ${reprintSetFor(r.set.id)?.stamp ?? 'an anniversary stamp'}? '
+                'Then it is the reprint, not this card.',
+                style: text.bodySmall,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    // A scan belongs to the physical card, so it moves with
+                    // the user's correction rather than staying on the original.
+                    final scan = ref.read(lastScanProvider);
+                    if (scan != null && scan.resolvedCardId == card.key) {
+                      ref.read(lastScanProvider.notifier).set(scan.resolvedAs(r.key));
+                    }
+                    context.pushReplacement(cardPath(r.key));
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Show the reprint'),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

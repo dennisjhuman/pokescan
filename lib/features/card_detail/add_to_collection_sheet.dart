@@ -58,7 +58,7 @@ class _AddFormState extends ConsumerState<_AddForm> {
     final ex = widget.existing;
     if (ex == null) {
       await repo.add(
-        cardId: widget.card.id,
+        cardId: widget.card.key,
         variant: _variant,
         quantity: _qty,
         condition: _condition,

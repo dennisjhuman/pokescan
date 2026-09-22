@@ -1025,6 +1025,268 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
   }
 }
 
+class $SetListsTable extends SetLists with TableInfo<$SetListsTable, SetList> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SetListsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _langMeta = const VerificationMeta('lang');
+  @override
+  late final GeneratedColumn<String> lang = GeneratedColumn<String>(
+    'lang',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _jsonMeta = const VerificationMeta('json');
+  @override
+  late final GeneratedColumn<String> json = GeneratedColumn<String>(
+    'json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _checkedAtMeta = const VerificationMeta(
+    'checkedAt',
+  );
+  @override
+  late final GeneratedColumn<int> checkedAt = GeneratedColumn<int>(
+    'checked_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [lang, json, checkedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'set_lists';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SetList> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('lang')) {
+      context.handle(
+        _langMeta,
+        lang.isAcceptableOrUnknown(data['lang']!, _langMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_langMeta);
+    }
+    if (data.containsKey('json')) {
+      context.handle(
+        _jsonMeta,
+        json.isAcceptableOrUnknown(data['json']!, _jsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_jsonMeta);
+    }
+    if (data.containsKey('checked_at')) {
+      context.handle(
+        _checkedAtMeta,
+        checkedAt.isAcceptableOrUnknown(data['checked_at']!, _checkedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_checkedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {lang};
+  @override
+  SetList map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SetList(
+      lang: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lang'],
+      )!,
+      json: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}json'],
+      )!,
+      checkedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}checked_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SetListsTable createAlias(String alias) {
+    return $SetListsTable(attachedDatabase, alias);
+  }
+}
+
+class SetList extends DataClass implements Insertable<SetList> {
+  final String lang;
+  final String json;
+
+  /// When TCGdex was last asked, epoch ms. Drives the once-a-day check.
+  final int checkedAt;
+  const SetList({
+    required this.lang,
+    required this.json,
+    required this.checkedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['lang'] = Variable<String>(lang);
+    map['json'] = Variable<String>(json);
+    map['checked_at'] = Variable<int>(checkedAt);
+    return map;
+  }
+
+  SetListsCompanion toCompanion(bool nullToAbsent) {
+    return SetListsCompanion(
+      lang: Value(lang),
+      json: Value(json),
+      checkedAt: Value(checkedAt),
+    );
+  }
+
+  factory SetList.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SetList(
+      lang: serializer.fromJson<String>(json['lang']),
+      json: serializer.fromJson<String>(json['json']),
+      checkedAt: serializer.fromJson<int>(json['checkedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'lang': serializer.toJson<String>(lang),
+      'json': serializer.toJson<String>(json),
+      'checkedAt': serializer.toJson<int>(checkedAt),
+    };
+  }
+
+  SetList copyWith({String? lang, String? json, int? checkedAt}) => SetList(
+    lang: lang ?? this.lang,
+    json: json ?? this.json,
+    checkedAt: checkedAt ?? this.checkedAt,
+  );
+  SetList copyWithCompanion(SetListsCompanion data) {
+    return SetList(
+      lang: data.lang.present ? data.lang.value : this.lang,
+      json: data.json.present ? data.json.value : this.json,
+      checkedAt: data.checkedAt.present ? data.checkedAt.value : this.checkedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SetList(')
+          ..write('lang: $lang, ')
+          ..write('json: $json, ')
+          ..write('checkedAt: $checkedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(lang, json, checkedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SetList &&
+          other.lang == this.lang &&
+          other.json == this.json &&
+          other.checkedAt == this.checkedAt);
+}
+
+class SetListsCompanion extends UpdateCompanion<SetList> {
+  final Value<String> lang;
+  final Value<String> json;
+  final Value<int> checkedAt;
+  final Value<int> rowid;
+  const SetListsCompanion({
+    this.lang = const Value.absent(),
+    this.json = const Value.absent(),
+    this.checkedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SetListsCompanion.insert({
+    required String lang,
+    required String json,
+    required int checkedAt,
+    this.rowid = const Value.absent(),
+  }) : lang = Value(lang),
+       json = Value(json),
+       checkedAt = Value(checkedAt);
+  static Insertable<SetList> custom({
+    Expression<String>? lang,
+    Expression<String>? json,
+    Expression<int>? checkedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (lang != null) 'lang': lang,
+      if (json != null) 'json': json,
+      if (checkedAt != null) 'checked_at': checkedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SetListsCompanion copyWith({
+    Value<String>? lang,
+    Value<String>? json,
+    Value<int>? checkedAt,
+    Value<int>? rowid,
+  }) {
+    return SetListsCompanion(
+      lang: lang ?? this.lang,
+      json: json ?? this.json,
+      checkedAt: checkedAt ?? this.checkedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (lang.present) {
+      map['lang'] = Variable<String>(lang.value);
+    }
+    if (json.present) {
+      map['json'] = Variable<String>(json.value);
+    }
+    if (checkedAt.present) {
+      map['checked_at'] = Variable<int>(checkedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SetListsCompanion(')
+          ..write('lang: $lang, ')
+          ..write('json: $json, ')
+          ..write('checkedAt: $checkedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1032,6 +1294,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CollectionItemsTable collectionItems = $CollectionItemsTable(
     this,
   );
+  late final $SetListsTable setLists = $SetListsTable(this);
   late final CardCacheDao cardCacheDao = CardCacheDao(this as AppDatabase);
   late final CollectionDao collectionDao = CollectionDao(this as AppDatabase);
   @override
@@ -1041,6 +1304,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     cardsCache,
     collectionItems,
+    setLists,
   ];
 }
 
@@ -1783,6 +2047,169 @@ typedef $$CollectionItemsTableProcessedTableManager =
       CollectionItem,
       PrefetchHooks Function({bool cardId})
     >;
+typedef $$SetListsTableCreateCompanionBuilder = SetListsCompanion Function({
+  required String lang,
+  required String json,
+  required int checkedAt,
+  Value<int> rowid,
+});
+typedef $$SetListsTableUpdateCompanionBuilder = SetListsCompanion Function({
+  Value<String> lang,
+  Value<String> json,
+  Value<int> checkedAt,
+  Value<int> rowid,
+});
+
+class $$SetListsTableFilterComposer
+    extends Composer<_$AppDatabase, $SetListsTable> {
+  $$SetListsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get lang => $composableBuilder(
+    column: $table.lang,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get json => $composableBuilder(
+    column: $table.json,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get checkedAt => $composableBuilder(
+    column: $table.checkedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SetListsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SetListsTable> {
+  $$SetListsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get lang => $composableBuilder(
+    column: $table.lang,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get json => $composableBuilder(
+    column: $table.json,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get checkedAt => $composableBuilder(
+    column: $table.checkedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SetListsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SetListsTable> {
+  $$SetListsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get lang =>
+      $composableBuilder(column: $table.lang, builder: (column) => column);
+
+  GeneratedColumn<String> get json =>
+      $composableBuilder(column: $table.json, builder: (column) => column);
+
+  GeneratedColumn<int> get checkedAt =>
+      $composableBuilder(column: $table.checkedAt, builder: (column) => column);
+}
+
+class $$SetListsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SetListsTable,
+          SetList,
+          $$SetListsTableFilterComposer,
+          $$SetListsTableOrderingComposer,
+          $$SetListsTableAnnotationComposer,
+          $$SetListsTableCreateCompanionBuilder,
+          $$SetListsTableUpdateCompanionBuilder,
+          (SetList, BaseReferences<_$AppDatabase, $SetListsTable, SetList>),
+          SetList,
+          PrefetchHooks Function()
+        > {
+  $$SetListsTableTableManager(_$AppDatabase db, $SetListsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SetListsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SetListsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SetListsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> lang = const Value.absent(),
+                Value<String> json = const Value.absent(),
+                Value<int> checkedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SetListsCompanion(
+                lang: lang,
+                json: json,
+                checkedAt: checkedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String lang,
+                required String json,
+                required int checkedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SetListsCompanion.insert(
+                lang: lang,
+                json: json,
+                checkedAt: checkedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SetListsTable, SetList>(table),
+                  BaseReferences<_$AppDatabase, $SetListsTable, SetList>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SetListsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SetListsTable,
+      SetList,
+      $$SetListsTableFilterComposer,
+      $$SetListsTableOrderingComposer,
+      $$SetListsTableAnnotationComposer,
+      $$SetListsTableCreateCompanionBuilder,
+      $$SetListsTableUpdateCompanionBuilder,
+      (SetList, BaseReferences<_$AppDatabase, $SetListsTable, SetList>),
+      SetList,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1791,4 +2218,6 @@ class $AppDatabaseManager {
       $$CardsCacheTableTableManager(_db, _db.cardsCache);
   $$CollectionItemsTableTableManager get collectionItems =>
       $$CollectionItemsTableTableManager(_db, _db.collectionItems);
+  $$SetListsTableTableManager get setLists =>
+      $$SetListsTableTableManager(_db, _db.setLists);
 }

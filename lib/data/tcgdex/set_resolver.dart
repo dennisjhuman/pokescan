@@ -1,12 +1,19 @@
-import 'set_index.g.dart';
+import 'card_key.dart';
+import 'set_catalog.dart';
 import 'set_info.dart';
 
-/// Pure-Dart lookup from what is printed on a card to TCGdex set ids.
-/// Shared by manual entry (Phase 1) and the OCR parser (Phase 3).
+/// Pure-Dart lookup from what is printed on a card to TCGdex set ids, for one
+/// language. Shared by the finder and the OCR parser.
 class SetResolver {
+  /// English sets from the shared catalogue, including any the runtime check
+  /// has found since the bundle was generated. Pass [sets] to pin a list.
   SetResolver([Iterable<SetInfo>? sets])
-      : _sets = (sets ?? kSetIndex).where(_isPhysical).toList()
+      : _sets = (sets ?? SetCatalog.instance.setsFor('en')).where(_isPhysical).toList()
           ..sort((a, b) => (b.releaseDate ?? '').compareTo(a.releaseDate ?? ''));
+
+  /// The catalogue for [lang] (`en`, `ja`).
+  factory SetResolver.forLang(String lang, [SetCatalog? catalog]) =>
+      SetResolver((catalog ?? SetCatalog.instance).setsFor(lang));
 
   /// Newest first.
   final List<SetInfo> _sets;
@@ -25,6 +32,27 @@ class SetResolver {
     }
     for (final s in _sets) {
       if (s.abbreviation?.toLowerCase() == c) return s;
+    }
+    return null;
+  }
+
+  /// Every set the code could mean. Codes are not unique: the 30th
+  /// Celebration and its Classic Collection both print `30C`, so a lookup by
+  /// code alone has to be allowed to come back with more than one answer.
+  List<SetInfo> byCodeAll(String code) {
+    final c = code.trim().toLowerCase();
+    if (c.isEmpty) return const [];
+    final byId = _sets.where((s) => s.id.toLowerCase() == c);
+    final byAbbr = _sets.where((s) => s.abbreviation?.toLowerCase() == c && s.id.toLowerCase() != c);
+    return [...byId, ...byAbbr];
+  }
+
+  /// Exact TCGdex set id only — never an abbreviation. `PAR-185` must not be
+  /// read as a card id just because PAR is Paradox Rift's printed code.
+  SetInfo? byId(String id) {
+    final c = id.trim().toLowerCase();
+    for (final s in _sets) {
+      if (s.id.toLowerCase() == c) return s;
     }
     return null;
   }
@@ -86,13 +114,10 @@ class SetResolver {
     'HGSS': 'hgssp',
   };
 
-  /// The set a full TCGdex card id belongs to (`sv04-185` → Paradox Rift).
-  /// Used to label search results, which come back with only an id.
-  SetInfo? setForCardId(String cardId) {
-    final dash = cardId.lastIndexOf('-');
-    if (dash <= 0) return null;
-    return byCode(cardId.substring(0, dash));
-  }
+  /// The set a card id or key belongs to (`sv04-185` → Paradox Rift). Used
+  /// to label search results, which come back with only an id. Set ids can
+  /// contain a hyphen themselves (`30th-c-001`), hence [CardKey.setId].
+  SetInfo? setForCardId(String cardId) => byId(CardKey.parse(cardId).setId);
 
   /// Free-text set search for the "browse by set" picker: matches the name,
   /// the printed abbreviation, the TCGdex id and the serie. Newest first.

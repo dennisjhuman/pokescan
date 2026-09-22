@@ -14,7 +14,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/providers.dart';
+import '../../data/tcgdex/card_key.dart';
 import '../../data/tcgdex/card_query.dart';
+import '../../data/tcgdex/set_catalog.dart';
 import '../../data/tcgdex/set_info.dart';
 import 'card_results.dart';
 import 'set_browser.dart';
@@ -48,7 +51,7 @@ class FindCardView extends ConsumerStatefulWidget {
   /// Same sheet, for callers that only want to navigate to the card.
   static Future<void> showAsSheet(BuildContext context, {String initialQuery = ''}) async {
     final id = await pick(context, initialQuery: initialQuery);
-    if (id != null && context.mounted) context.push('/card/$id');
+    if (id != null && context.mounted) context.push(cardPath(id));
   }
 
   @override
@@ -56,9 +59,22 @@ class FindCardView extends ConsumerStatefulWidget {
 }
 
 class _FindCardViewState extends ConsumerState<FindCardView> {
-  final _parser = CardQueryParser();
+  var _parser = CardQueryParser();
+  int? _catalogVersion;
   late final _controller = TextEditingController(text: widget.initialQuery);
   late CardQuery _query = _parser.parse(widget.initialQuery);
+
+  /// The parser snapshots the set catalogue when built. When the background
+  /// check finds a new set, rebuild it and re-read what is in the box, so a
+  /// number that did not resolve a moment ago now does.
+  void _syncCatalog(int version) {
+    if (_catalogVersion == version) return;
+    final first = _catalogVersion == null;
+    _catalogVersion = version;
+    if (first) return;
+    _parser = CardQueryParser();
+    _query = _parser.parse(_query.raw);
+  }
   Timer? _debounce;
   bool _showHelp = false;
 
@@ -98,17 +114,23 @@ class _FindCardViewState extends ConsumerState<FindCardView> {
     if (cb != null) {
       cb(cardId);
     } else {
-      context.push('/card/$cardId');
+      context.push(cardPath(cardId));
     }
   }
 
-  Future<void> _browse() async {
-    final id = await showSetBrowser(context, initialQuery: _query.setCode ?? '');
+  Future<void> _browse({String? query, String? lang}) async {
+    final id = await showSetBrowser(context,
+        initialQuery: query ?? _query.setCode ?? '', lang: lang ?? _query.preferredLang);
     if (id != null && mounted) _pick(id);
   }
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    _syncCatalog(ref.watch(setCatalogVersionProvider).value ?? 0);
+    return _body();
+  }
+
+  Widget _body() => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
@@ -138,7 +160,7 @@ class _FindCardViewState extends ConsumerState<FindCardView> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _browse,
+                    onPressed: () => _browse(),
                     icon: const Icon(Icons.style_outlined),
                     label: const Text('Browse sets'),
                   ),
@@ -163,41 +185,40 @@ class _FindCardViewState extends ConsumerState<FindCardView> {
     final q = _query;
     switch (q.kind) {
       case CardQueryKind.empty:
-        return _Tips(onExample: _runExample);
+        return _Tips(
+          onExample: _runExample,
+          onSet: (set) => _browse(query: set.name, lang: set.lang),
+        );
 
       case CardQueryKind.name:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (q.likelyJapanese) const _JapaneseNotice(),
-            // No unknown-code panel here: in a name query every word is a
-            // leftover, so it would fire on "Pikachu".
-            Expanded(
-              child: NameResultsView(
-                query: q.name!,
-                resolver: _parser.resolver,
-                onPick: (c) => _pick(c.id),
-              ),
-            ),
-          ],
+        // Kana or kanji search the Japanese catalogue; TCGdex does not
+        // cross-index names, so an English name never finds a Japanese print.
+        // No unknown-code panel here: in a name query every word is a
+        // leftover, so it would fire on "Pikachu".
+        final lang = q.japanese ? 'ja' : 'en';
+        return NameResultsView(
+          query: q.name!,
+          lang: lang,
+          resolver: _parser.resolverFor(lang),
+          onPick: (c) => _pick(c.key),
         );
 
       case CardQueryKind.cardId:
       case CardQueryKind.number:
         final ids = _parser.candidateIds(q);
-        if (ids.isEmpty) return _NoCandidates(query: q, parser: _parser, onBrowse: _browse);
+        if (ids.isEmpty) return _NoCandidates(query: q, parser: _parser, onBrowse: () => _browse());
         return ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
             _ReadBack(query: q, sets: _parser.candidateSets(q)),
-            if (q.likelyJapanese) const _JapaneseNotice(),
             if (!q.likelyJapanese && q.leftovers.isNotEmpty)
               _UnknownCode(code: q.leftovers.first, parser: _parser),
             CandidateCardGrid(
               ids: ids,
               shrinkWrap: true,
-              onPick: (c) => _pick(c.id),
-              emptyBuilder: (_) => _NoCandidates(query: q, parser: _parser, onBrowse: _browse),
+              onPick: (c) => _pick(c.key),
+              emptyBuilder: (_) =>
+                  _NoCandidates(query: q, parser: _parser, onBrowse: () => _browse()),
             ),
           ],
         );
@@ -239,8 +260,10 @@ class _ReadBack extends StatelessWidget {
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           if (sets.length == 1)
-            Text('Only ${sets.single.name} fits.',
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              'Only ${sets.single.name}${sets.single.lang == 'ja' ? ' (Japanese)' : ''} fits.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
         ],
       ),
     );
@@ -256,6 +279,23 @@ class _NoCandidates extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final product = CardQueryParser.untrackedProducts[query.untracked];
+    if (product != null) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('${query.untracked} is $product.', style: text.titleSmall),
+          const SizedBox(height: 6),
+          Text(
+            'TCGdex, the free card database this app uses, does not list that '
+            'product, so these cards cannot be identified or priced here. The '
+            'number after the slash matches a different set, which is why it is '
+            'not shown.',
+            style: text.bodyMedium,
+          ),
+        ],
+      );
+    }
     final why = switch (query) {
       CardQuery(setCode: final c?) => 'No card $c ${query.number ?? ''} in that set.',
       CardQuery(total: null) =>
@@ -330,6 +370,9 @@ class _UnknownCode extends StatelessWidget {
   }
 }
 
+/// Shown only when a Japanese-looking card could not be placed. Japanese sets
+/// resolve normally now; the usual reason for this is a set released since the
+/// last check, which the ⟳ in the set browser fixes.
 class _JapaneseNotice extends StatelessWidget {
   const _JapaneseNotice();
 
@@ -339,10 +382,10 @@ class _JapaneseNotice extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Text(
-            'That looks like a Japanese card. Lookup is English-only for now, and '
-            'Japanese set codes (M6, SV1a…) collide with English ones, so searching '
-            'for them would return the wrong card. Try the English name of the '
-            'Pokémon — the English print is often a close match in value.',
+            'That looks like a Japanese card, but no Japanese set matches. Japanese '
+            'cards print the set code on its own (M6, SV2a) just left of the number '
+            '— check it, or open Browse sets → Japanese and tap ⟳ in case the set '
+            'is brand new.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
@@ -361,6 +404,7 @@ class _HelpPanel extends StatelessWidget {
     ('PAR EN 185/182', 'Scarlet & Violet prints a real set code. EN is the language.'),
     ('SVP 194', 'Promo: no set size at all, the code carries it.'),
     ('SWSH153', 'Promo with the code glued to the number.'),
+    ('M6 084/076', 'Japanese: the set code sits alone next to the number. RR/AR after it is the rarity.'),
     ('swsh3-20', 'A TCGdex id, if you already know it.'),
   ];
 
@@ -406,13 +450,19 @@ class _HelpPanel extends StatelessWidget {
   }
 }
 
-class _Tips extends StatelessWidget {
-  const _Tips({required this.onExample});
+class _Tips extends ConsumerWidget {
+  const _Tips({required this.onExample, required this.onSet});
   final ValueChanged<String> onExample;
+  final ValueChanged<SetInfo> onSet;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
+    ref.watch(setCatalogVersionProvider);
+    final recent = [
+      ...SetCatalog.instance.recent('en').take(4),
+      ...SetCatalog.instance.recent('ja').take(2),
+    ];
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -430,10 +480,27 @@ class _Tips extends StatelessWidget {
         Wrap(
           spacing: 8,
           children: [
-            for (final e in ['185/182', 'SWSH153', 'SVP 194', 'swsh3-20', 'Charizard'])
+            for (final e in ['185/182', 'SWSH153', 'SVP 194', 'M6 084/076', 'Charizard'])
               ActionChip(label: Text(e), onPressed: () => onExample(e)),
           ],
         ),
+        if (recent.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text('New sets', style: text.labelLarge),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final s in recent)
+                ActionChip(
+                  avatar: const Icon(Icons.fiber_new_outlined, size: 18),
+                  label: Text('${s.name}${s.lang == 'ja' ? ' (JP)' : ''}'),
+                  onPressed: () => onSet(s),
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }

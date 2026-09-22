@@ -20,7 +20,7 @@ unless explicitly added later.
 Verify TCGdex endpoint shapes against https://tcgdex.dev before coding — the
 notes below are from memory and may be slightly off.
 
-## Status (updated 2026-09-15)
+## Status (updated 2026-09-22)
 
 | Phase | State |
 |---|---|
@@ -28,10 +28,10 @@ notes below are from memory and may be slightly off.
 | 2 Local collection | Done, verified in browser (drift on IndexedDB) |
 | 3 Camera + OCR | Code complete, **OCR accuracy still unverified** — needs the physical iPhone; see below |
 | 4 Fake signals | Done, except the counterfeit done-when needs a real fake card |
-| 5 Polish | CSV export and price-change badge done; Japanese support not started |
+| 5 Polish | CSV export and price-change badge done; Japanese lookup done 2026-09-21 |
 | 6 Findability | Single-box finder, candidate artwork, set browser — done 2026-09-20, verified in browser |
-| Shipping | Web live; iOS installed on the iPhone; signed Android APK builds |
-| Shipping | Web app live and installable; iOS build for scanning only |
+| 7 Live set catalogue | New sets picked up at runtime, once a day — done 2026-09-21 |
+| Shipping | Web live; iOS on the iPhone; signed Android APK on the son's phone |
 
 ### Shipping (decided 2026-09-16)
 
@@ -203,9 +203,8 @@ What changed:
 - **Dead ends explain themselves.** An unknown code says so and offers near
   misses (`SetResolver.didYouMean`); a number above the set size is named as a
   secret rare rather than looking like an error.
-- **Japanese is detected, not attempted.** Kana/kanji, or an unrecognised code
-  shaped like a Japanese set id (`M6`, `SV1a`), shows a notice. Lookup stays
-  English-only — see the open question below.
+- **Japanese** was detected-but-declined here; it resolves properly since
+  2026-09-21 — see "Card keys and languages".
 - Search is debounced as you type (450 ms), because Enter is not reliable on
   Flutter web.
 
@@ -218,15 +217,130 @@ Done when: all six cards above resolve from their printed bottom edge. They do.
   history table; `PriceChange.between` compares the chosen variant and refuses
   to compare across currencies, so a Cardmarket-to-TCGplayer fallback does not
   read as a huge move.
-- Japanese card support: switch `{lang}` to `ja` in TCGdex calls; OCR with ML Kit Japanese model.
-  **Blocked on a decision, not on effort.** `GET /v2/ja/cards/M6-058` works fine
-  and is priced, but Japanese set ids collide with English ones — JP `SV10` is
-  ロケット団の栄光, EN `sv10` is Destined Rivals, and the cache lowercases its
-  keys. So `lang` has to become part of the card id everywhere: cache key,
-  route, `collection_items.card_id`, CSV export, fake signals. Until then the
-  finder detects Japanese cards and says so rather than returning the wrong
-  English card. Two of the six test cards are Japanese, so this is the next
-  real chunk of work.
+- Japanese card support — **lookup done 2026-09-21.** See "Card keys and
+  languages" below. No Japanese ML Kit model was needed: the bottom line of a
+  Japanese card (`J M6 084/076 AR`) is Latin text, which the existing OCR reads.
+  The name and attacks are not, which is why text-mismatch fake signals are
+  skipped for non-English cards (HP still checked — digits are digits).
+
+## Card keys and languages (2026-09-21)
+
+TCGdex keeps each language as a separate catalogue and the ids collide: JP
+`SV10` is ロケット団の栄光, EN `sv10` is Destined Rivals. So the app names a
+card by a **key** (`data/tcgdex/card_key.dart`), not a bare TCGdex id:
+
+- English: the bare id, `swsh3-20` — unchanged, so every row written before
+  this still means what it meant. No data migration.
+- Everything else: prefixed, `ja:M6-058`.
+
+Keys are what routes (`cardPath(key)`, URL-encoded because of the colon), the
+card cache, and `collection_items.card_id` hold. `TcgCard.key` / `CardBrief.key`
+give it; `.id` is the raw TCGdex id, for display only. The repository parses
+the key and passes `lang` to the client.
+
+`collection_items.card_id` is a foreign key to `cards_cache.id`, which is
+lower-cased — so the collection stores `CollectionRepository.storageKey(key)`.
+Before this, any id with a capital letter (`swshp-SWSH153`, `swsh9tg-TG01`)
+failed the constraint on add. Verified: `FOREIGN KEY constraint failed`. Those
+cards could never have been saved.
+
+Western prints (FR, DE, IT…) use the English set codes and numbers and resolve
+to the English card; only Japanese is a separate catalogue. The parser tries
+English first and only falls back to Japanese when English finds nothing,
+unless the text itself says Japanese (kana/kanji, or a code only the Japanese
+catalogue knows like `M6`). With a code both know (`SV10`), the printed total
+decides. Japanese cards print the set id itself as the code; the lone letter
+before it (`J`) is the 2026 regulation mark.
+
+Japanese data is thinner: TCGplayer prices are usually absent, so values fall
+back to Cardmarket EUR and are labelled estimates. Artwork is patchy — see
+below.
+
+### Missing artwork (measured 2026-09-21)
+
+Two different things look identical on screen:
+
+| Set | API `image` | Asset host, 12 cards sampled |
+|---|---|---|
+| JP M1S, M4 | null for every card | **12/12 present** |
+| JP M6, M5, M2a; EN 30th Classic Collection | null | 0/12 |
+
+So sometimes TCGdex has uploaded the art but not yet updated the card data to
+point at it. When `image` is null the app now tries the conventional path
+`assets.tcgdex.net/{lang}/{serieId}/{setId}/{localId}` (`fallbackImageBase`).
+That needs the **series id**, which cannot be guessed from the set id (`30th`
+is series `me`, `cel25` is `swsh`), so `SetInfo.serieId` is recorded by the
+generator and the runtime check.
+
+A guessed URL is marked `speculative`: two attempts instead of four, and a
+failure reads "No artwork yet" rather than "Tap to retry". That matters on web,
+where the asset host's 404 carries no CORS headers and so arrives as a network
+error — indistinguishable from the host being busy. On native the 404 is seen
+directly and recorded in `ImageLoader.isMissing`.
+
+Art that appears on TCGdex later shows up with no change here: the guess is
+re-tried each session, and failures are only remembered for the session.
+
+**Placeholders in a tile must not be tappable** (`CardThumb.retryable`, off by
+default). A "tap to retry" on failed art swallows the tap meant for the result
+tile around it; that shipped briefly and made every card without art — all of
+JP M6, the whole 30th Classic Collection — impossible to open except by
+tapping the small name text. Pinned by `test/card_thumb_tap_test.dart`. Only
+the detail page offers retry.
+
+**Set symbols are down on TCGdex's side** (2026-09-21): every
+`assets.tcgdex.net/univ/.../symbol.*` returns 400 `InvalidBucketName`, even for
+old sets, while logos on the same host work. The app shows no symbol. The
+image loader now treats any 4xx except 408/429 as final — before, each of the
+~220 symbols in the set list got four backed-off retries and starved card art
+of request slots.
+
+**Anniversary reprints print the original's number.** The 30th Classic
+Collection (2026) and Celebrations Classic Collection (2021) reprint famous
+cards with a small stamp but keep the original number — the 30th Charizard
+says `4/102`, the same as the 1999 Base Set one. So a typed or scanned number
+finds the original, never the reprint. TCGdex numbers the reprints separately
+(`30th-c-001`, `cel25cc-CC002`) and records no link back. `reprints.dart`
+matches on name + illustrator + HP + attack names, exact for every pair checked
+(Charizard ↔ base1-4, Crobat G ↔ pl1-47, Magikarp ↔ sv02-203).
+`reprintsOfProvider` adds the reprints to finder results and a "Does yours have
+the stamp?" banner to the original's card page (scans and links skip the
+finder). It matters: Base Set Charizard holo is ~$920; the reprint is not.
+Add new reprint sets to `kReprintSets`.
+
+**Products TCGdex does not have.** Pokémon Trading Card Game Classic (2023)
+prints `CLV` / `CLC` / `CLB 001/034` and is not on TCGdex at all. Its only
+34-card set is Double Crisis, so `CLC 003/034` used to resolve confidently to
+Double Crisis #3. `CardQueryParser.untrackedProducts` names such codes; a
+query carrying one returns no candidates and says what the product is. Add to
+that map when another real product turns up that TCGdex lacks.
+
+TCGdex sends `rarity: "None"` as a string for cards with no rarity; it is read
+as null. Sets that print no size (30th Classic Collection, official 0) show
+`001`, not `001/0`.
+
+## Set catalogue (2026-09-21)
+
+The bundled index (`set_index.g.dart`, `set_index_ja.g.dart`) is only the
+offline baseline now. `SetIndexRefresher` checks TCGdex at startup, at most
+once every 20 h per language: one `GET /sets` request, then details only for
+sets it has never seen or whose card counts changed. Results go in the
+`set_lists` table (schema v3) and into `SetCatalog`, which every
+`SetResolver()` reads from. A set found once keeps resolving offline.
+
+Prompted by the 30th Celebration set, released 2026-09-16 — the day after the
+bundle was generated — whose cards resolved to nothing. It shares the code
+`30C` with its Classic Collection, so `byCodeAll` exists and the printed total
+picks between them. Its id also starts with a digit and the Classic
+Collection's contains a hyphen (`30th-c-001`); the id regex allows both.
+
+The set browser shows NEW on sets released or first seen in the last 45 days,
+an English/Japanese switch, and ⟳ to check now (ignores the interval). The
+finder's empty state lists new sets.
+
+Still worth re-running `dart run tool/gen_set_index.dart` now and then, so new
+installs start current. It now refuses to write a partial index if a set
+detail keeps 503ing, rather than silently dropping that set's code and date.
 
 ## Folder structure
 
@@ -242,7 +356,10 @@ lib/
       tcgdex_client.dart       # HTTP calls
       tcgdex_models.dart       # Card, Set, Pricing (json_serializable)
       card_query.dart          # typed/OCR'd text → number, total, set code
+      card_key.dart            # 'swsh3-20' / 'ja:M6-058' — id plus language
       set_resolver.dart        # printed code/total → set ids, offline
+      set_catalog.dart         # bundled sets + ones found at runtime
+      set_index_refresher.dart # once-a-day check for new sets
     db/
       database.dart            # drift database + tables
       collection_dao.dart
@@ -281,15 +398,20 @@ test/
 
 ```
 cards_cache                    -- schema v2
-  id                  TEXT PK  -- TCGdex card id, e.g. "swsh3-136"
+  id                  TEXT PK  -- card key, lower-cased: "swsh3-136", "ja:m6-084"
   json                TEXT     -- raw card response
   fetched_at          INTEGER  -- epoch ms
   previous_json       TEXT ?   -- the response this row replaced
   previous_fetched_at INTEGER ?-- when that one was fetched
 
+set_lists                      -- schema v3
+  lang          TEXT PK        -- en | ja
+  json          TEXT           -- sets found at runtime, not in the bundle
+  checked_at    INTEGER        -- last full check, epoch ms (0 = never)
+
 collection_items
   id            INTEGER PK autoincrement
-  card_id       TEXT FK -> cards_cache.id
+  card_id       TEXT FK -> cards_cache.id  -- storageKey(key), lower-cased
   variant       TEXT           -- normal | holo | reverse | firstEdition | wPromo
   quantity      INTEGER default 1
   condition     TEXT           -- NM | LP | MP | HP | DMG (self-assessed)

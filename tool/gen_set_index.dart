@@ -1,68 +1,87 @@
-// Regenerates lib/data/tcgdex/set_index.g.dart from TCGdex.
+// Regenerates the bundled set indexes from TCGdex.
 //
-//   dart run tool/gen_set_index.dart
+//   dart run tool/gen_set_index.dart          # English and Japanese
+//   dart run tool/gen_set_index.dart en       # just one
 //
 // Fetches GET /sets, then GET /sets/{id} for each (sequential, polite) to pick
-// up `abbreviation.official`, which the list endpoint omits. ~220 requests,
-// run once in a while — never at app runtime.
+// up `abbreviation.official`, the release date and the zero-padding, which the
+// list endpoint omits. ~400 requests for both languages.
+//
+// The bundle is only the offline baseline now: the app also checks TCGdex for
+// new sets at runtime (see set_index_refresher.dart), so a set released after
+// this was last run still resolves. Re-running it just means new installs do
+// not have to fetch anything on first launch.
 import 'dart:convert';
 import 'dart:io';
 
-const base = 'https://api.tcgdex.net/v2/en';
+import 'package:pokescan/data/tcgdex/set_info.dart';
 
-Future<Map<String, dynamic>?> getJson(HttpClient c, String path) async {
-  for (var attempt = 0; attempt < 3; attempt++) {
+const base = 'https://api.tcgdex.net/v2';
+
+/// Output file and Dart constant name per language.
+const targets = {
+  'en': ('lib/data/tcgdex/set_index.g.dart', 'kSetIndex'),
+  'ja': ('lib/data/tcgdex/set_index_ja.g.dart', 'kSetIndexJa'),
+};
+
+/// TCGdex sheds load with 503s (see image_loader.dart); a set detail that
+/// still fails after this many tries aborts the run rather than quietly
+/// writing a row with no set code or release date.
+const maxAttempts = 6;
+
+Future<Object?> getJson(HttpClient c, String url) async {
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      final req = await c.getUrl(Uri.parse('$base$path'));
+      final req = await c.getUrl(Uri.parse(url));
       final res = await req.close();
       final body = await utf8.decodeStream(res);
-      if (res.statusCode == 200 && body.isNotEmpty) {
-        return jsonDecode(body) as Map<String, dynamic>;
-      }
-      stderr.writeln('  $path -> ${res.statusCode} (attempt ${attempt + 1})');
+      if (res.statusCode == 200 && body.isNotEmpty) return jsonDecode(body);
+      stderr.writeln('  $url -> ${res.statusCode} (attempt ${attempt + 1})');
     } catch (e) {
-      stderr.writeln('  $path -> $e (attempt ${attempt + 1})');
+      stderr.writeln('  $url -> $e (attempt ${attempt + 1})');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
   }
   return null;
 }
 
-String q(String? s) => s == null ? 'null' : "'${s.replaceAll(r'\', r'\\').replaceAll("'", r"\'")}'";
+String q(String? s) => s == null ? 'null' : "'${s.replaceAll(r'\', r'\\').replaceAll("'", r"\'").replaceAll(r'$', r'\$')}'";
 
-Future<void> main() async {
-  final c = HttpClient();
-  final req = await c.getUrl(Uri.parse('$base/sets'));
-  final list = (jsonDecode(await utf8.decodeStream(await req.close())) as List)
-      .cast<Map<String, dynamic>>();
-  stderr.writeln('${list.length} sets');
+String source(SetInfo s) => '  SetInfo('
+    'id: ${q(s.id)}, '
+    'name: ${q(s.name)}, '
+    "${s.lang == 'en' ? '' : 'lang: ${q(s.lang)}, '}"
+    'serie: ${q(s.serie)}, '
+    'serieId: ${q(s.serieId)}, '
+    'abbreviation: ${q(s.abbreviation)}, '
+    'official: ${s.official}, '
+    'total: ${s.total}, '
+    'releaseDate: ${q(s.releaseDate)}, '
+    'hasLogo: ${s.hasLogo}, '
+    'hasSymbol: ${s.hasSymbol}, '
+    'zeroPadded: ${s.zeroPadded}'
+    '),';
+
+Future<void> generate(HttpClient c, String lang) async {
+  final (path, constName) = targets[lang]!;
+  final list = ((await getJson(c, '$base/$lang/sets')) as List).cast<Map<String, dynamic>>();
+  stderr.writeln('$lang: ${list.length} sets');
 
   final rows = <String>[];
   for (final brief in list) {
     final id = brief['id'] as String;
-    final full = await getJson(c, '/sets/$id') ?? brief;
-    final cc = (full['cardCount'] as Map<String, dynamic>?) ?? {};
-    // TCGdex keeps the printed zero padding for some sets (sv04-042, svp-012,
-    // swsh9tg-TG01) but not others (swsh3-20). Detect from the card list.
-    final cardIds = ((full['cards'] as List?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map((c) => c['localId'].toString());
-    final zeroPadded = cardIds.any((x) => RegExp(r'^[A-Z]*0\d').hasMatch(x));
-    rows.add('  SetInfo('
-        'id: ${q(id)}, '
-        'name: ${q(full['name'] as String?)}, '
-        'serie: ${q((full['serie'] as Map<String, dynamic>?)?['name'] as String?)}, '
-        'abbreviation: ${q((full['abbreviation'] as Map<String, dynamic>?)?['official'] as String?)}, '
-        'official: ${cc['official'] ?? 0}, '
-        'total: ${cc['total'] ?? 0}, '
-        'releaseDate: ${q(full['releaseDate'] as String?)}, '
-        'hasLogo: ${full['logo'] != null}, '
-        'hasSymbol: ${full['symbol'] != null}, '
-        'zeroPadded: $zeroPadded'
-        '),');
+    final full = (await getJson(c, '$base/$lang/sets/${Uri.encodeComponent(id)}')) as Map<String, dynamic>?;
+    if (full == null) {
+      // The brief entry has no code, date or padding. Writing it would
+      // silently break lookups for a set that used to work, so stop here and
+      // leave the existing file alone.
+      stderr.writeln('$lang: giving up on $id after $maxAttempts attempts; $path left unchanged');
+      exitCode = 1;
+      return;
+    }
+    rows.add(source(SetInfo.fromSetJson(full, lang: lang)));
     await Future<void>.delayed(const Duration(milliseconds: 150));
   }
-  c.close();
 
   final out = StringBuffer()
     ..writeln('// GENERATED by tool/gen_set_index.dart on ${DateTime.now().toIso8601String().split('T').first}.')
@@ -70,10 +89,19 @@ Future<void> main() async {
     ..writeln()
     ..writeln("import 'set_info.dart';")
     ..writeln()
-    ..writeln('const kSetIndex = <SetInfo>[')
+    ..writeln('const $constName = <SetInfo>[')
     ..writeAll(rows, '\n')
     ..writeln()
     ..writeln('];');
-  File('lib/data/tcgdex/set_index.g.dart').writeAsStringSync(out.toString());
-  stderr.writeln('wrote ${rows.length} rows');
+  File(path).writeAsStringSync(out.toString());
+  stderr.writeln('$lang: wrote ${rows.length} rows to $path');
+}
+
+Future<void> main(List<String> args) async {
+  final langs = args.isEmpty ? targets.keys.toList() : args;
+  final c = HttpClient();
+  for (final lang in langs) {
+    await generate(c, lang);
+  }
+  c.close();
 }

@@ -21,6 +21,31 @@ void main() {
 
   tearDown(() => db.close());
 
+  group('card keys with capitals in them', () {
+    // collection_items.card_id is a foreign key to cards_cache.id, and the
+    // cache stores keys lower-cased. Adding by the TCGdex id as written used
+    // to violate the constraint for any id with a capital letter.
+    test('a SWSH promo can be added and is joined back to its card', () async {
+      await db.cardCacheDao.put('swshp-swsh153', fixture('swsh3-136'));
+      await repo.add(cardId: 'swshp-SWSH153', variant: CardVariant.holo);
+
+      final entries = await repo.watchAll().firstWhere((l) => l.isNotEmpty);
+      expect(entries.single.card, isNotNull);
+      expect(await repo.watchForCard('swshp-SWSH153').first, hasLength(1));
+    });
+
+    test('a Japanese card is stored under its prefixed key, as Japanese', () async {
+      await db.cardCacheDao.put('ja:m6-084', fixture('swsh3-136'));
+      await repo.add(cardId: 'ja:M6-084', variant: CardVariant.holo);
+
+      final entries = await repo.watchAll().firstWhere((l) => l.isNotEmpty);
+      final e = entries.single;
+      expect(e.item.cardId, 'ja:m6-084');
+      expect(e.item.language, 'ja', reason: 'taken from the key, not a caller default');
+      expect(e.card?.lang, 'ja');
+    });
+  });
+
   test('add → watchAll emits entries joined with cards, value derived', () async {
     await repo.add(cardId: 'swsh3-20', variant: CardVariant.holo, quantity: 2);
     await repo.add(cardId: 'swsh3-136', variant: CardVariant.normal, condition: 'LP');

@@ -22,6 +22,9 @@ final _router = GoRouter(
     ),
     GoRoute(
       path: '/card/:id',
+      // go_router hands path parameters back decoded, so `ja%3AM6-058` arrives
+      // as `ja:M6-058`. Decoding again would be harmless for every real key
+      // but is not needed.
       builder: (_, state) => CardDetailScreen(cardId: state.pathParameters['id']!),
     ),
   ],

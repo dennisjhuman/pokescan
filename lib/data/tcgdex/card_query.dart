@@ -16,6 +16,7 @@
 /// Pure Dart, no Flutter: unit-tested in `test/card_query_test.dart`.
 library;
 
+import 'card_key.dart';
 import 'set_info.dart';
 import 'set_resolver.dart';
 
@@ -46,6 +47,8 @@ class CardQuery {
     this.cardId,
     this.regulationMark,
     this.japanese = false,
+    this.japaneseCode = false,
+    this.untracked,
     this.leftovers = const [],
   });
 
@@ -74,6 +77,13 @@ class CardQuery {
   /// Text contained kana or kanji: this is definitely a Japanese card.
   final bool japanese;
 
+  /// The set code is one only the Japanese catalogue knows (`M6`, `SV2a`).
+  final bool japaneseCode;
+
+  /// A printed code for a real product TCGdex does not list (`CLC`), if one
+  /// was read. See [CardQueryParser.untrackedProducts].
+  final String? untracked;
+
   /// Tokens we recognised as neither number, code, language nor rarity —
   /// shown back to the user so an unknown set code isn't silently dropped.
   final List<String> leftovers;
@@ -85,7 +95,10 @@ class CardQuery {
   /// a Japanese card without typing any Japanese. Only ever used to explain
   /// a dead end, never to look anything up.
   bool get likelyJapanese =>
-      japanese || leftovers.any(CardQueryParser.looksLikeJapaneseSetCode);
+      japanese || japaneseCode || leftovers.any(CardQueryParser.looksLikeJapaneseSetCode);
+
+  /// Which catalogue to try first.
+  String get preferredLang => likelyJapanese ? 'ja' : 'en';
 
   @override
   String toString() => 'CardQuery($kind number=$number total=$total code=$setCode '
@@ -94,15 +107,26 @@ class CardQuery {
 
 /// Parses the search box, and turns a [CardQuery] into candidate card ids.
 class CardQueryParser {
-  CardQueryParser([SetResolver? resolver]) : _resolver = resolver ?? SetResolver();
+  /// [resolver] is the English catalogue, [japanese] the Japanese one. Both
+  /// default to the shared catalogue, which includes sets found at runtime.
+  CardQueryParser([SetResolver? resolver, SetResolver? japanese])
+      : _resolver = resolver ?? SetResolver(),
+        _ja = japanese ?? SetResolver.forLang('ja');
 
   final SetResolver _resolver;
+  final SetResolver _ja;
 
+  /// The English resolver: set browser, name grouping, "did you mean".
   SetResolver get resolver => _resolver;
 
-  /// A full TCGdex id: lowercase set id, hyphen, local id.
-  /// `swsh3-20`, `sv03.5-125`, `swshp-SWSH061`, `swsh9tg-TG01`.
-  static final _idRe = RegExp(r'^([a-z][a-z0-9.]{1,9})-([A-Za-z]{0,4}\d{1,3}[A-Za-z]?)$');
+  SetResolver resolverFor(String lang) => lang == 'ja' ? _ja : _resolver;
+
+  /// A full card key: optional language, set id, hyphen, local id.
+  /// `swsh3-20`, `sv03.5-125`, `swshp-SWSH061`, `30th-c-001`, `ja:M6-058`.
+  /// Set ids can start with a digit (`30th`) and contain a hyphen (`30th-c`,
+  /// `M-P`); the greedy set part backtracks to the last hyphen.
+  static final _idRe = RegExp(
+      r'^(?:([a-z]{2}):)?([A-Za-z0-9][A-Za-z0-9.\-]{0,11})-([A-Za-z]{0,4}\d{1,3}[A-Za-z]?)$');
 
   /// `185/182`, `020 / 189`, `TG12/TG30`.
   /// No whitespace inside either side: a lone letter before the number is a
@@ -129,8 +153,19 @@ class CardQueryParser {
   static bool looksLikeJapaneseSetCode(String token) =>
       _japaneseSetCodeRe.hasMatch(token.trim());
 
+  /// Real printed codes for products TCGdex does not have. Without this, the
+  /// set size alone decides: `CLC 003/034` resolved to Double Crisis #3, the
+  /// only 34-card set TCGdex knows — a confident wrong answer, when the code
+  /// on the card says plainly that it is not Double Crisis.
+  static const untrackedProducts = {
+    'CLV': 'Pokémon Trading Card Game Classic (2023) — Venusaur deck',
+    'CLC': 'Pokémon Trading Card Game Classic (2023) — Charizard deck',
+    'CLB': 'Pokémon Trading Card Game Classic (2023) — Blastoise deck',
+  };
+
   /// Regulation marks (the lone letter left of the number on 2020+ cards).
-  static const _regulationMarks = {'D', 'E', 'F', 'G', 'H', 'I'};
+  /// `J` is the 2026 mark — printed on the Japanese M6 cards in hand.
+  static const _regulationMarks = {'D', 'E', 'F', 'G', 'H', 'I', 'J'};
 
   /// Rarity codes printed after the number, mostly on Japanese cards
   /// (`058/076 RR`). They are only treated as rarities once a number *and* a
@@ -155,16 +190,25 @@ class CardQueryParser {
     if (raw.isEmpty) return CardQuery(raw: raw, kind: CardQueryKind.empty);
     final japanese = _cjkRe.hasMatch(raw);
 
-    // 1. Already a TCGdex id.
+    // 1. Already a card key. Matched against set *ids* only: `PAR-185` is a
+    //    code and a number, not an id, and must fall through to step 3.
     final id = _idRe.firstMatch(raw.replaceAll(' ', ''));
-    if (id != null && _resolver.byCode(id.group(1)!) != null) {
-      return CardQuery(
-        raw: raw,
-        kind: CardQueryKind.cardId,
-        cardId: '${id.group(1)}-${id.group(2)}',
-        setCode: id.group(1),
-        japanese: japanese,
-      );
+    if (id != null) {
+      final setId = id.group(2)!;
+      final explicit = id.group(1);
+      final langs = explicit != null ? [explicit] : const ['en', 'ja'];
+      for (final lang in langs) {
+        final set = resolverFor(lang).byId(setId);
+        if (set == null) continue;
+        return CardQuery(
+          raw: raw,
+          kind: CardQueryKind.cardId,
+          cardId: CardKey(lang, '${set.id}-${id.group(3)}').key,
+          setCode: set.id,
+          japanese: japanese,
+          japaneseCode: lang == 'ja',
+        );
+      }
     }
 
     // 2. Number / total anywhere in the text.
@@ -184,9 +228,12 @@ class CardQueryParser {
 
     // 3. Classify the remaining tokens.
     String? setCode;
+    String? untracked;
+    var japaneseCode = false;
     String? regulationMark;
     final leftovers = <String>[];
-    final words = rest.split(RegExp(r'[\s,·|]+')).where((w) => w.trim().isNotEmpty);
+    // Hyphens split too, so `PAR-185` reads as a code and a number.
+    final words = rest.split(RegExp(r'[\s,·|\-]+')).where((w) => w.trim().isNotEmpty);
     for (final w in words) {
       final token = w.replaceAll(RegExp(r'[^A-Za-z0-9.]'), '');
       if (token.isEmpty) continue;
@@ -210,10 +257,19 @@ class CardQueryParser {
         continue;
       }
       if (number != null && total != null && _rarityCodes.contains(upper)) continue;
-      // A set code we know.
-      if (setCode == null && _resolver.byCode(token) != null) {
-        setCode = token;
+      if (untrackedProducts.containsKey(upper)) {
+        untracked ??= upper;
         continue;
+      }
+      // A set code either catalogue knows.
+      if (setCode == null) {
+        final en = _resolver.byCode(token) != null;
+        final ja = _ja.byCode(token) != null;
+        if (en || ja) {
+          setCode = token;
+          japaneseCode = ja && !en;
+          continue;
+        }
       }
       leftovers.add(token);
     }
@@ -227,6 +283,8 @@ class CardQueryParser {
         setCode: setCode,
         regulationMark: regulationMark,
         japanese: japanese,
+        japaneseCode: japaneseCode,
+        untracked: untracked,
         leftovers: leftovers,
       );
     }
@@ -236,28 +294,51 @@ class CardQueryParser {
       name: raw,
       setCode: setCode,
       japanese: japanese,
+      japaneseCode: japaneseCode,
       leftovers: leftovers,
     );
   }
 
   /// Sets the query could belong to, best first. Empty when we can't tell.
+  ///
+  /// Both catalogues are consulted, the likelier language first. With a set
+  /// code, every set either language has under that code is a candidate, and
+  /// the printed total picks between them — which is how `SV10 100/182`
+  /// stays English Destined Rivals (182 cards) rather than Japanese SV10 (98),
+  /// and how `30C 045/128` picks the 30th Celebration over its Classic
+  /// Collection. Without a code, the second language is only tried when the
+  /// first finds nothing, so an ordinary English number never grows a list of
+  /// Japanese look-alikes.
   List<SetInfo> candidateSets(CardQuery q) {
+    // The card names a product TCGdex does not have. Matching on the set size
+    // anyway would only find some other set that happens to share it.
+    if (q.untracked != null) return const [];
+    final langs = q.preferredLang == 'ja' ? const ['ja', 'en'] : const ['en', 'ja'];
+
     if (q.setCode != null) {
-      final s = _resolver.byCode(q.setCode!);
-      if (s != null) return [s];
+      final all = [for (final l in langs) ...resolverFor(l).byCodeAll(q.setCode!)];
+      if (all.isNotEmpty) {
+        if (q.total == null) return all;
+        final fits = all.where((s) => s.official == q.total).toList();
+        // A misread total should not throw away a set the code named exactly.
+        return fits.isNotEmpty ? fits : all;
+      }
     }
     if (q.number == null) return const [];
-    final byPrefix = _resolver.setsForNumberPrefix(q.number!);
     if (q.total == null) {
       // A promo prefix ("SWSH153") pins the set even with no total printed.
-      return byPrefix;
+      // Promo prefixes are English-only.
+      return _resolver.setsForNumberPrefix(q.number!);
     }
-    var sets = _resolver.resolve(number: q.number!, total: q.total);
-    if (q.regulationMark != null) {
-      final narrowed = sets.where((s) => _fitsRegulationMark(s, q.regulationMark!)).toList();
-      if (narrowed.isNotEmpty) sets = narrowed;
+    for (final l in langs) {
+      var sets = resolverFor(l).resolve(number: q.number!, total: q.total);
+      if (q.regulationMark != null) {
+        final narrowed = sets.where((s) => _fitsRegulationMark(s, q.regulationMark!)).toList();
+        if (narrowed.isNotEmpty) sets = narrowed;
+      }
+      if (sets.isNotEmpty) return sets;
     }
-    return sets;
+    return const [];
   }
 
   /// Candidate TCGdex ids for the query, best first.
@@ -272,7 +353,7 @@ class CardQueryParser {
   static bool _fitsRegulationMark(SetInfo s, String mark) {
     final year = int.tryParse(s.releaseDate?.substring(0, 4) ?? '');
     if (year == null) return true;
-    final first = {'D': 2019, 'E': 2020, 'F': 2021, 'G': 2022, 'H': 2023, 'I': 2024}[mark];
+    final first = {'D': 2019, 'E': 2020, 'F': 2021, 'G': 2022, 'H': 2023, 'I': 2024, 'J': 2025}[mark];
     if (first == null) return true;
     return year >= first && year <= first + 3;
   }

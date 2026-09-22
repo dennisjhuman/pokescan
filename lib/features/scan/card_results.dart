@@ -17,6 +17,7 @@ import '../../data/tcgdex/tcgdex_models.dart';
 import '../../shared/utils/errors.dart';
 import '../../shared/widgets/card_thumb.dart';
 import '../../shared/widgets/error_banner.dart';
+import '../../data/tcgdex/reprints.dart';
 
 /// Resolves each id and shows the ones that exist, artwork first.
 ///
@@ -70,6 +71,17 @@ class CandidateCardGrid extends ConsumerWidget {
           const Padding(padding: EdgeInsets.all(24), child: Text('No card with that number.'));
     }
 
+    // Anniversary reprints print the original's number, so the number alone
+    // finds the original. Offer the reprint next to it; the stamp decides.
+    final reprints = [
+      for (final c in cards) ...?ref.watch(reprintsOfProvider(c.key)).value,
+    ];
+    final reprintSets = {for (final r in reprints) reprintSetFor(r.set.id)}.nonNulls;
+    final tiles = [
+      for (final c in cards) _tileFor(c, onPick),
+      for (final r in reprints) _reprintTile(r, onPick),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -82,13 +94,22 @@ class CandidateCardGrid extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
+        for (final r in reprintSets)
+          Padding(
+            padding: EdgeInsets.fromLTRB(padding.left, 4, padding.right, 0),
+            child: Text(
+              'Also reprinted with the same number in the ${r.name}. '
+              'If your card has ${r.stamp}, pick the reprint.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         GridView.builder(
           padding: padding,
           shrinkWrap: true,
           physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
           gridDelegate: cardGridDelegate(context),
-          itemCount: cards.length,
-          itemBuilder: (_, i) => _tileFor(cards[i], onPick),
+          itemCount: tiles.length,
+          itemBuilder: (_, i) => tiles[i],
         ),
         if (loading)
           const Padding(
@@ -99,12 +120,25 @@ class CandidateCardGrid extends ConsumerWidget {
     );
   }
 
-  static Widget _tileFor(TcgCard c, ValueChanged<TcgCard> onPick) => CardResultTile(
+  static Widget _reprintTile(TcgCard c, ValueChanged<TcgCard> onPick) => CardResultTile(
         imageUrl: c.imageUrl(quality: 'low'),
+        speculative: !c.hasListedImage,
         name: c.name,
         setName: c.set.name,
         number: c.numberLabel,
-        trailingNote: c.rarity,
+        trailingNote: 'Reprint',
+        onTap: () => onPick(c),
+      );
+
+  static Widget _tileFor(TcgCard c, ValueChanged<TcgCard> onPick) => CardResultTile(
+        imageUrl: c.imageUrl(quality: 'low'),
+        speculative: !c.hasListedImage,
+        name: c.name,
+        setName: c.set.name,
+        number: c.numberLabel,
+        // A Japanese print and an English one can share a Pokémon and even a
+        // number; the tag stops a mixed result list from being ambiguous.
+        trailingNote: [if (c.lang != 'en') c.lang.toUpperCase(), ?c.rarity].join(' · '),
         onTap: () => onPick(c),
       );
 }
@@ -120,11 +154,16 @@ class NameResultsView extends ConsumerStatefulWidget {
     super.key,
     required this.query,
     required this.onPick,
+    this.lang = 'en',
     SetResolver? resolver,
-  }) : resolver = resolver ?? SetResolver();
+  }) : resolver = resolver ?? SetResolver.forLang(lang);
 
   final String query;
   final ValueChanged<CardBrief> onPick;
+
+  /// Which catalogue to search. Names are not cross-indexed between languages
+  /// on TCGdex, so a Japanese name only finds Japanese cards and vice versa.
+  final String lang;
   final SetResolver resolver;
 
   @override
@@ -138,14 +177,15 @@ class _NameResultsViewState extends ConsumerState<NameResultsView> {
   @override
   void didUpdateWidget(NameResultsView old) {
     super.didUpdateWidget(old);
-    if (old.query != widget.query) _onlySet = null;
+    if (old.query != widget.query || old.lang != widget.lang) _onlySet = null;
   }
 
   @override
   Widget build(BuildContext context) {
     final query = widget.query;
     final onPick = widget.onPick;
-    final async = ref.watch(cardSearchProvider(query));
+    final key = (lang: widget.lang, name: query);
+    final async = ref.watch(cardSearchProvider(key));
     return async.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(32),
@@ -155,7 +195,7 @@ class _NameResultsViewState extends ConsumerState<NameResultsView> {
         padding: const EdgeInsets.all(16),
         child: ErrorBanner(
           message: describeError(e),
-          onRetry: () => ref.invalidate(cardSearchProvider(query)),
+          onRetry: () => ref.invalidate(cardSearchProvider(key)),
         ),
       ),
       data: (cards) {
@@ -200,9 +240,12 @@ class _NameResultsViewState extends ConsumerState<NameResultsView> {
                     final c = g.cards[i];
                     return CardResultTile(
                       imageUrl: c.imageUrl(),
+                      speculative: !c.hasListedImage,
                       name: c.name,
                       setName: g.set?.name ?? g.setId,
-                      number: g.set == null ? c.localId : '${c.localId}/${g.set!.official}',
+                      number: g.set == null || g.set!.official == 0
+                          ? c.localId
+                          : '${c.localId}/${g.set!.official}',
                       onTap: () => onPick(c),
                     );
                   },
@@ -265,7 +308,7 @@ List<SetGroup> groupBySet(List<CardBrief> cards, SetResolver resolver) {
     bySet.putIfAbsent(setId, () => []).add(c);
   }
   final groups = [
-    for (final e in bySet.entries) SetGroup(e.key, resolver.byCode(e.key), e.value),
+    for (final e in bySet.entries) SetGroup(e.key, resolver.byId(e.key), e.value),
   ];
   // Undated sets sort last rather than first: an empty string would beat a
   // real date under a plain descending compare.

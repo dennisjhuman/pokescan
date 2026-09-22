@@ -133,6 +133,51 @@ void main() {
 
       expect(await l.loader.load('https://x/missing'), isNull);
       expect(calls, 1, reason: 'a lot of sets genuinely have no logo');
+      expect(l.loader.isMissing('https://x/missing'), isTrue);
+
+      // A user-requested retry is for busy servers; it does not re-ask for
+      // art the host has said it does not have.
+      l.loader.retryFailures();
+      expect(await l.loader.load('https://x/missing'), isNull);
+      expect(calls, 1);
+    });
+
+    test('a 400 is final too — the broken symbol bucket must not hog slots', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response('<Error><Code>InvalidBucketName</Code></Error>', 400);
+      });
+      expect(await l.loader.load('https://x/symbol.webp'), isNull);
+      expect(calls, 1);
+    });
+
+    test('429 and 408 mean "later", so they are retried', () {
+      expect(ImageLoader.isPermanentFailure(429), isFalse);
+      expect(ImageLoader.isPermanentFailure(408), isFalse);
+      expect(ImageLoader.isPermanentFailure(503), isFalse);
+      expect(ImageLoader.isPermanentFailure(404), isTrue);
+      expect(ImageLoader.isPermanentFailure(400), isTrue);
+    });
+
+    test('a 503 that gives up is a failure, not "missing"', () async {
+      final l = loaderWith((req) async => http.Response('busy', 503), maxAttempts: 2);
+      expect(await l.loader.load('https://x/busy'), isNull);
+      expect(l.loader.isMissing('https://x/busy'), isFalse,
+          reason: 'the tile should offer a retry, not say there is no art');
+    });
+
+    test('a guessed URL gets two tries, not four', () async {
+      // In a browser an absent file on the asset host looks like a network
+      // error (no CORS headers on its 404), so a guess that fails is almost
+      // always simply absent. Four backed-off tries would only waste slots.
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        throw const SocketExceptionLike();
+      });
+      expect(await l.loader.load('https://x/guess', speculative: true), isNull);
+      expect(calls, 2);
     });
 
     test('an empty 200 counts as a failure', () async {

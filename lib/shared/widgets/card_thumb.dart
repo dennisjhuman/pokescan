@@ -16,9 +16,24 @@ class CardThumb extends StatelessWidget {
     this.name,
     this.number,
     this.width,
+    this.speculative = false,
+    this.retryable = false,
   });
 
   final String? imageUrl;
+
+  /// Whether a failed image can be tapped to retry. Off by default, because a
+  /// thumbnail almost always sits inside something tappable — a result tile
+  /// that opens the card — and a retry target on the art swallows that tap.
+  /// That shipped once: every card without art in a grid became impossible to
+  /// open by tapping it. Only the detail page, where the art is the only thing
+  /// under the finger, turns this on.
+  final bool retryable;
+
+  /// The URL is where the art would conventionally be, not one the card data
+  /// listed. A failure then most likely means "not uploaded yet", and is
+  /// shown as such rather than as a connection problem.
+  final bool speculative;
   final String? name;
   final String? number;
   final double? width;
@@ -35,6 +50,8 @@ class CardThumb extends StatelessWidget {
                 url: imageUrl!,
                 name: name,
                 number: number,
+                speculative: speculative,
+                retryable: retryable,
               ),
       ),
     );
@@ -49,11 +66,19 @@ class CardThumb extends StatelessWidget {
 /// of asking the network again. Bytes already in the cache paint on the first
 /// frame, with no spinner flash.
 class _LoadedImage extends StatefulWidget {
-  const _LoadedImage({required this.url, this.name, this.number});
+  const _LoadedImage({
+    required this.url,
+    this.name,
+    this.number,
+    this.speculative = false,
+    this.retryable = false,
+  });
 
   final String url;
   final String? name;
   final String? number;
+  final bool speculative;
+  final bool retryable;
 
   @override
   State<_LoadedImage> createState() => _LoadedImageState();
@@ -86,7 +111,7 @@ class _LoadedImageState extends State<_LoadedImage> {
       return;
     }
     final url = widget.url;
-    imageLoader.load(url).then((bytes) {
+    imageLoader.load(url, speculative: widget.speculative).then((bytes) {
       // The tile may have been recycled onto another card while we waited.
       if (!mounted || url != widget.url) return;
       setState(() {
@@ -115,12 +140,18 @@ class _LoadedImageState extends State<_LoadedImage> {
       );
     }
     if (_failed) {
-      return _Placeholder(
-        name: widget.name,
-        number: widget.number,
-        reason: 'Tap to retry',
-        onTap: _retry,
-      );
+      // Not on the server at all: say so, and do not offer a retry that
+      // would only 404 again. Otherwise it was the host shedding load.
+      // Absent (a 404), or a guessed URL that failed — which on web is how
+      // a 404 arrives, disguised as a network error.
+      if (imageLoader.isMissing(widget.url) || widget.speculative) {
+        return _Placeholder(name: widget.name, number: widget.number, reason: 'No artwork yet');
+      }
+      // The host was busy. Only offer a retry where the tap is ours to take.
+      return widget.retryable
+          ? _Placeholder(
+              name: widget.name, number: widget.number, reason: 'Tap to retry', onTap: _retry)
+          : _Placeholder(name: widget.name, number: widget.number, reason: 'Image unavailable');
     }
     return const _Loading();
   }
@@ -196,6 +227,7 @@ class CardResultTile extends StatelessWidget {
     this.number,
     this.trailingNote,
     this.selected = false,
+    this.speculative = false,
   });
 
   final String? imageUrl;
@@ -205,6 +237,9 @@ class CardResultTile extends StatelessWidget {
   final String? trailingNote;
   final bool selected;
   final VoidCallback onTap;
+
+  /// See [CardThumb.speculative].
+  final bool speculative;
 
   @override
   Widget build(BuildContext context) {
@@ -226,7 +261,8 @@ class CardResultTile extends StatelessWidget {
                     ? Border.all(color: scheme.primary, width: 3)
                     : Border.all(color: Colors.transparent, width: 3),
               ),
-              child: CardThumb(imageUrl: imageUrl, name: name, number: number),
+              child: CardThumb(
+                  imageUrl: imageUrl, name: name, number: number, speculative: speculative),
             ),
             const SizedBox(height: 6),
             Text(name,
