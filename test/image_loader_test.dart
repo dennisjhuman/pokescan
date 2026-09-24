@@ -241,6 +241,74 @@ void main() {
       expect(c.byteCount, 60);
     });
   });
+
+  group('a 400 writes off the whole bucket', () {
+    // TCGdex's set-symbol bucket has answered `400 InvalidBucketName` for every
+    // set since 2026-09-21, old ones included. A 400 there is the bucket, not
+    // the file, so the ~220 symbols in the set list are 220 requests whose
+    // answer is already known — and 220 console errors.
+    const symbol = 'https://assets.tcgdex.net/univ/swsh/swsh3/symbol.webp';
+    const otherSymbol = 'https://assets.tcgdex.net/univ/sv/sv10/symbol.webp';
+    const cardArt = 'https://assets.tcgdex.net/en/swsh/swsh3/20/low.webp';
+
+    test('a second symbol is never requested after the first 400', () async {
+      final asked = <String>[];
+      final l = loaderWith((req) async {
+        asked.add(req.url.toString());
+        return http.Response('InvalidBucketName', 400);
+      });
+
+      expect(await l.loader.load(symbol), isNull);
+      expect(await l.loader.load(otherSymbol), isNull);
+
+      expect(asked, [symbol], reason: 'the second symbol should not be fetched');
+      expect(l.loader.isUnderDeadBucket(otherSymbol), isTrue);
+      expect(l.loader.hasFailed(otherSymbol), isTrue);
+    });
+
+    test('card art is unaffected: a different bucket', () async {
+      final asked = <String>[];
+      final l = loaderWith((req) async {
+        asked.add(req.url.toString());
+        return req.url.path.contains('symbol')
+            ? http.Response('InvalidBucketName', 400)
+            : http.Response.bytes(bytes(10), 200);
+      });
+
+      await l.loader.load(symbol);
+      expect(await l.loader.load(cardArt), isNotNull);
+      expect(asked, [symbol, cardArt]);
+      expect(l.loader.isUnderDeadBucket(cardArt), isFalse);
+    });
+
+    test('a retry gives the bucket another chance', () async {
+      var calls = 0;
+      final l = loaderWith((req) async {
+        calls++;
+        return http.Response('InvalidBucketName', 400);
+      });
+
+      await l.loader.load(symbol);
+      await l.loader.load(otherSymbol);
+      expect(calls, 1);
+
+      l.loader.retryFailures();
+      await l.loader.load(otherSymbol);
+      expect(calls, 2, reason: 'TCGdex may have fixed the bucket by now');
+    });
+
+    test('a 404 writes off only that file', () async {
+      final asked = <String>[];
+      final l = loaderWith((req) async {
+        asked.add(req.url.toString());
+        return http.Response('', 404);
+      });
+
+      await l.loader.load('https://assets.tcgdex.net/en/me/30th-c/001/low.webp');
+      await l.loader.load('https://assets.tcgdex.net/en/me/30th-c/002/low.webp');
+      expect(asked.length, 2, reason: 'absent art is per-card, not per-bucket');
+    });
+  });
 }
 
 /// Stand-in for a connection failure; the loader only cares that it throws.

@@ -235,6 +235,11 @@ class CardQueryParser {
     // Hyphens split too, so `PAR-185` reads as a code and a number.
     final words = rest.split(RegExp(r'[\s,·|\-]+')).where((w) => w.trim().isNotEmpty);
     for (final w in words) {
+      // A word containing kana or kanji is part of a Japanese card name, not
+      // a code. Stripping the CJK out leaves whatever Latin was glued to it:
+      // `メガレックウザex` left `ex`, which matches the English e-Card set, so
+      // the app read a Japanese name as "set ex" and offered to browse it.
+      if (_cjkRe.hasMatch(w)) continue;
       final token = w.replaceAll(RegExp(r'[^A-Za-z0-9.]'), '');
       if (token.isEmpty) continue;
       final upper = token.toUpperCase();

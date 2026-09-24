@@ -147,7 +147,30 @@ class SetInfo {
     return seen != null && t.difference(DateTime.fromMillisecondsSinceEpoch(seen)).inDays <= days;
   }
 
-  String? get logoUrl => hasLogo ? 'https://assets.tcgdex.net/$lang/$seriePath/$id/logo.webp' : null;
+  /// Where the set logo might be, best first.
+  ///
+  /// Two separate things had to be got right here, both measured 2026-09-24:
+  ///
+  ///  * **The data often omits the logo that exists.** 63 of the 220 English
+  ///    sets carry no `logo` key at all, the 30th Celebration and its Classic
+  ///    Collection among them — yet `.../me/30th/logo.png` serves a logo. Same
+  ///    story as card art: the file is uploaded before the data points at it.
+  ///    So a set whose data lists no logo is still guessed at, and
+  ///    [hasListedLogo] says which case we are in.
+  ///  * **The format is not fixed.** The 30th Celebration logo is a PNG and
+  ///    `logo.webp` 404s, while most other sets serve both. So both are tried,
+  ///    webp first because it is smaller.
+  ///
+  /// A guess that is wrong is a 404, which [ImageLoader] treats as final.
+  List<String> get logoUrls {
+    final base = 'https://assets.tcgdex.net/$lang/$seriePath/$id/logo';
+    return ['$base.webp', '$base.png'];
+  }
+
+  /// True when the set data named a logo; false means [logoUrls] is a guess
+  /// and should be loaded speculatively (fewer attempts, no retry offer).
+  bool get hasListedLogo => hasLogo;
+
   String? get symbolUrl =>
       hasSymbol ? 'https://assets.tcgdex.net/univ/$seriePath/$id/symbol.webp' : null;
 

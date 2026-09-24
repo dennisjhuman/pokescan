@@ -259,4 +259,31 @@ void main() {
       expect(near.map((s) => s.abbreviation), contains('PAR'));
     });
   });
+
+  group('a Japanese name is a name, not a code', () {
+    // Latin letters glued to a Japanese name used to survive the punctuation
+    // strip on their own: `メガレックウザex` left the token `ex`, which matches
+    // the English e-Card set, so the app read the name as "set ex" and offered
+    // to browse it.
+    test('a name ending in ex names no set', () {
+      final query = q('メガレックウザex');
+      expect(query.kind, CardQueryKind.name);
+      expect(query.name, 'メガレックウザex');
+      expect(query.setCode, isNull);
+      expect(query.japanese, isTrue);
+    });
+
+    test('a plain kana name is unaffected', () {
+      final query = q('ピカチュウ');
+      expect(query.kind, CardQueryKind.name);
+      expect(query.setCode, isNull);
+      expect(query.preferredLang, 'ja');
+    });
+
+    test('a Latin set code beside a Japanese name is still read', () {
+      final query = q('M6 メガレックウザex');
+      expect(query.setCode, 'M6');
+      expect(query.japaneseCode, isTrue);
+    });
+  });
 }

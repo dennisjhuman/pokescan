@@ -15,17 +15,42 @@ String fmtMoney(double? v, String unit) {
 /// blob per card, so they read as a rough European estimate. See
 /// [CardPricing.valueFor].
 class PricePanel extends StatelessWidget {
-  const PricePanel({super.key, required this.pricing, required this.variant});
+  const PricePanel({
+    super.key,
+    required this.pricing,
+    required this.variant,
+    this.setName,
+    this.setIsRecent = false,
+  });
 
   final CardPricing? pricing;
   final CardVariant variant;
+
+  /// Named only so the empty state can say *which* set has no prices yet.
+  final String? setName;
+
+  /// The set came out recently. TCGdex links a set to Cardmarket and
+  /// TCGplayer some weeks after release — the 30th Celebration and its
+  /// Classic Collection had a null `pricing` block on every card sampled a
+  /// week after release (2026-09-24) — so "no prices" there means "not yet",
+  /// which is worth saying rather than leaving the user wondering whether the
+  /// app is broken.
+  final bool setIsRecent;
 
   @override
   Widget build(BuildContext context) {
     final p = pricing;
     final text = Theme.of(context).textTheme;
     if (p == null || (p.cardmarket == null && p.tcgplayer == null)) {
-      return Text('No pricing data for this card.', style: text.bodyMedium);
+      final where = setName == null ? 'this set' : setName!;
+      return Text(
+        setIsRecent
+            ? 'No prices yet. TCGdex has not linked $where to Cardmarket or '
+                'TCGplayer — that usually follows a few weeks after release. '
+                'The card will pick up a value on its own once it does.'
+            : 'No pricing data for this card.',
+        style: text.bodyMedium,
+      );
     }
     final value = p.valueFor(variant);
     final cm = p.cardmarket;

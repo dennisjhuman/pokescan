@@ -177,7 +177,8 @@ class _SetTile extends StatelessWidget {
         width: 72,
         height: 48,
         child: RemoteIcon(
-          url: set.logoUrl,
+          urls: set.logoUrls,
+          speculative: !set.hasListedLogo,
           fallback: Center(child: Icon(Icons.style_outlined, color: scheme.outline)),
         ),
       ),

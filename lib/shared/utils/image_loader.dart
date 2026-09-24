@@ -112,8 +112,34 @@ class ImageLoader {
   /// yet" instead of offering a retry, and so a retry does not re-ask.
   final _missing = <String>{};
 
+  /// Url prefixes the host has answered `400` for. A 400 from
+  /// `assets.tcgdex.net` is not "this file is absent" — it is the bucket
+  /// behind that path being misconfigured, which it answers identically for
+  /// every file under it. Every set symbol has returned
+  /// `400 InvalidBucketName` since 2026-09-21, old sets included, so asking
+  /// for the next one is a request we already know the answer to: ~220 of them
+  /// across the set list, each also logging a console error.
+  ///
+  /// The prefix is the origin plus the first path segment
+  /// (`https://assets.tcgdex.net/univ/`), so a broken symbol bucket cannot
+  /// take card art down with it. Session-scoped: when TCGdex fixes the bucket,
+  /// the next run picks the symbols up with no change here.
+  final _deadPrefixes = <String>{};
+
+  /// `https://assets.tcgdex.net/univ/swsh/swsh3/symbol.webp`
+  ///   -> `https://assets.tcgdex.net/univ/`
+  static String? bucketPrefixOf(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.pathSegments.isEmpty) return null;
+    return '${uri.origin}/${uri.pathSegments.first}/';
+  }
+
+  bool _isUnderDeadBucket(String url) =>
+      _deadPrefixes.any((p) => url.startsWith(p));
+
   ImageByteCache get cache => _cache;
-  bool hasFailed(String url) => _failed.contains(url) || _missing.contains(url);
+  bool hasFailed(String url) =>
+      _failed.contains(url) || _missing.contains(url) || _isUnderDeadBucket(url);
 
   /// The host says this image does not exist.
   bool isMissing(String url) => _missing.contains(url);
@@ -131,6 +157,7 @@ class ImageLoader {
     final hit = _cache.get(url);
     if (hit != null) return Future.value(hit);
     if (_failed.contains(url) || _missing.contains(url)) return Future.value(null);
+    if (_isUnderDeadBucket(url)) return Future.value(null);
     // The braces matter: `whenComplete` waits on whatever its callback
     // returns, and `_pending.remove` hands back the very future being
     // awaited — an arrow body here deadlocks every image in the app.
@@ -140,8 +167,16 @@ class ImageLoader {
     });
   }
 
-  /// Forget past failures so the next build tries again.
-  void retryFailures() => _failed.clear();
+  /// Forget past failures so the next build tries again. A bucket written off
+  /// as dead is given another chance too — the user asking for a retry is as
+  /// good a moment as any to find out TCGdex has fixed it.
+  void retryFailures() {
+    _failed.clear();
+    _deadPrefixes.clear();
+  }
+
+  /// Whether a 400 has written off the bucket this url lives in.
+  bool isUnderDeadBucket(String url) => _isUnderDeadBucket(url);
 
   Future<Uint8List?> _fetch(String url, {required int attempts}) async {
     for (var attempt = 1; attempt <= attempts; attempt++) {
@@ -168,6 +203,11 @@ class ImageLoader {
       // requests queued ahead of the pictures. 408 and 429 mean "later".
       if (res != null && isPermanentFailure(res.statusCode)) {
         _missing.add(url);
+        // 400 means the bucket, not the file. Stop asking for the rest of it.
+        if (res.statusCode == 400) {
+          final prefix = bucketPrefixOf(url);
+          if (prefix != null) _deadPrefixes.add(prefix);
+        }
         return null;
       }
       if (attempt < attempts) await _sleep(backoffFor(attempt, _random));

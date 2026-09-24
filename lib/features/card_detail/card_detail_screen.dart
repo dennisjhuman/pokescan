@@ -182,7 +182,7 @@ class _Body extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _PriceSince(cardId: card.id, card: card, variant: variant),
-        PricePanel(pricing: card.pricing, variant: variant),
+        _prices(card, variant),
         const SizedBox(height: 24),
         _SignalsSection(card: card, scan: scan),
         const SizedBox(height: 24),
@@ -204,6 +204,20 @@ class _Body extends ConsumerWidget {
           style: text.bodySmall,
         ),
       ],
+    );
+  }
+
+  /// A brand-new set has no prices on TCGdex for some weeks after release, and
+  /// the panel says so rather than showing a bare "no pricing data". The set
+  /// is looked up in the card's own catalogue, so a Japanese card is matched
+  /// against the Japanese sets.
+  Widget _prices(TcgCard card, CardVariant variant) {
+    final set = SetResolver.forLang(CardKey.parse(card.key).lang).byId(card.set.id);
+    return PricePanel(
+      pricing: card.pricing,
+      variant: variant,
+      setName: set?.name ?? card.set.name,
+      setIsRecent: set?.isRecent(days: 90) ?? false,
     );
   }
 }

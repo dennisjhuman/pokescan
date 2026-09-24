@@ -293,24 +293,58 @@ class CardResultTile extends StatelessWidget {
 /// Renders nothing at all when the asset is missing — a lot of sets have no
 /// logo, and an error icon in a list is worse than a gap.
 class RemoteIcon extends StatelessWidget {
-  const RemoteIcon({super.key, required this.url, this.fit = BoxFit.contain, this.fallback});
+  const RemoteIcon({
+    super.key,
+    this.url,
+    this.urls,
+    this.fit = BoxFit.contain,
+    this.fallback,
+    this.speculative = false,
+  }) : assert(url == null || urls == null, 'pass url or urls, not both');
 
+  /// A single known URL.
   final String? url;
+
+  /// Several URLs to try in order, for an image whose exact address is not
+  /// certain — a set logo that may be `logo.webp` or `logo.png`, and may not
+  /// be listed in the data at all. The first one that loads wins.
+  final List<String>? urls;
+
   final BoxFit fit;
   final Widget? fallback;
 
+  /// The URLs are guesses rather than addresses the data gave us: fewer
+  /// attempts each, because most misses are simply absent.
+  final bool speculative;
+
   @override
   Widget build(BuildContext context) {
-    if (url == null) return fallback ?? const SizedBox.shrink();
-    return _LoadedIcon(url: url!, fit: fit, fallback: fallback);
+    final candidates = urls ?? (url == null ? const <String>[] : [url!]);
+    if (candidates.isEmpty) return fallback ?? const SizedBox.shrink();
+    return _LoadedIcon(
+      urls: candidates,
+      fit: fit,
+      fallback: fallback,
+      speculative: speculative,
+      // Rebuild from scratch when the candidate list changes, rather than
+      // leaving the old attempt's bytes on screen.
+      key: ValueKey(candidates.join('|')),
+    );
   }
 }
 
 class _LoadedIcon extends StatefulWidget {
-  const _LoadedIcon({required this.url, required this.fit, this.fallback});
-  final String url;
+  const _LoadedIcon({
+    super.key,
+    required this.urls,
+    required this.fit,
+    required this.speculative,
+    this.fallback,
+  });
+  final List<String> urls;
   final BoxFit fit;
   final Widget? fallback;
+  final bool speculative;
 
   @override
   State<_LoadedIcon> createState() => _LoadedIconState();
@@ -323,19 +357,33 @@ class _LoadedIconState extends State<_LoadedIcon> {
   @override
   void initState() {
     super.initState();
-    _bytes = imageLoader.cached(widget.url);
-    if (_bytes != null) {
-      _done = true;
-      return;
-    }
-    final url = widget.url;
-    imageLoader.load(url).then((b) {
-      if (!mounted || url != widget.url) return;
-      setState(() {
-        _bytes = b;
+    for (final url in widget.urls) {
+      _bytes = imageLoader.cached(url);
+      if (_bytes != null) {
         _done = true;
-      });
-    });
+        return;
+      }
+    }
+    _loadFirstThatWorks();
+  }
+
+  /// Tries each candidate in turn and stops at the first that returns bytes.
+  /// Sequential on purpose: for the common set the first URL is the right one,
+  /// and asking for both at once would double the load on a host that already
+  /// sheds requests.
+  Future<void> _loadFirstThatWorks() async {
+    for (final url in widget.urls) {
+      final bytes = await imageLoader.load(url, speculative: widget.speculative);
+      if (!mounted) return;
+      if (bytes != null) {
+        setState(() {
+          _bytes = bytes;
+          _done = true;
+        });
+        return;
+      }
+    }
+    if (mounted) setState(() => _done = true);
   }
 
   @override

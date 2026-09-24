@@ -57,6 +57,10 @@ Two targets, same code:
 The Scan tab falls back to manual entry on web via a conditional import, since
 ML Kit is mobile-only and the cropper needs `dart:io`.
 
+Routes are `/scan`, `/collection` and `/card/:id`; nothing is served at `/`,
+and go_router answered a reload or bookmark there with its "Page Not Found"
+screen, which looks like the app is broken. A redirect sends `/` to `/scan`.
+
 ### Android toolchain (set up 2026-09-20)
 
 No Android Studio. Command-line tools only, which is enough to build and to
@@ -256,6 +260,12 @@ Japanese data is thinner: TCGplayer prices are usually absent, so values fall
 back to Cardmarket EUR and are labelled estimates. Artwork is patchy — see
 below.
 
+A Japanese *name* is a name, not a code. The token loop strips punctuation, and
+stripping the kana out of `メガレックウザex` left `ex`, which matches the
+English e-Card set — so the app read the name as "set ex". Words containing
+kana or kanji are now skipped whole (fixed 2026-09-24,
+`test/card_query_test.dart`).
+
 ### Missing artwork (measured 2026-09-21)
 
 Two different things look identical on screen:
@@ -264,6 +274,13 @@ Two different things look identical on screen:
 |---|---|---|
 | JP M1S, M4 | null for every card | **12/12 present** |
 | JP M6, M5, M2a; EN 30th Classic Collection | null | 0/12 |
+
+Re-measured 2026-09-24: unchanged. JP M6 and both anniversary Classic
+Collections (`30th-c`, `cel25cc`) are still 404 for every card and every
+quality/extension. Nothing here to fix — the app already shows "No artwork
+yet", and the art appears on its own when TCGdex uploads it. On web these 404s
+reach the browser as CORS errors (the 404 carries no CORS headers), which is
+what the console shows; it is not a CORS problem.
 
 So sometimes TCGdex has uploaded the art but not yet updated the card data to
 point at it. When `image` is null the app now tries the conventional path
@@ -288,12 +305,37 @@ JP M6, the whole 30th Classic Collection — impossible to open except by
 tapping the small name text. Pinned by `test/card_thumb_tap_test.dart`. Only
 the detail page offers retry.
 
-**Set symbols are down on TCGdex's side** (2026-09-21): every
-`assets.tcgdex.net/univ/.../symbol.*` returns 400 `InvalidBucketName`, even for
-old sets, while logos on the same host work. The app shows no symbol. The
-image loader now treats any 4xx except 408/429 as final — before, each of the
-~220 symbols in the set list got four backed-off retries and starved card art
-of request slots.
+**Set symbols are down on TCGdex's side** (2026-09-21, still down
+2026-09-24): every `assets.tcgdex.net/univ/.../symbol.*` returns 400
+`InvalidBucketName`, even for old sets, while logos on the same host work. The
+app shows no symbol. The image loader treats any 4xx except 408/429 as final —
+before, each of the ~220 symbols in the set list got four backed-off retries
+and starved card art of request slots.
+
+Since 2026-09-24 it goes further: **a 400 writes off the whole bucket** for the
+session (`ImageLoader._deadPrefixes`, keyed on origin + first path segment, so
+`univ/` dying cannot take `en/` with it). A 400 from this host has only ever
+meant the bucket is misconfigured, and it answers the same for every file under
+it — so after the first symbol comes back 400 the other ~219 are not requested
+at all. `retryFailures()` clears it, and a new session tries again, so the
+symbols reappear on their own when TCGdex fixes the bucket.
+
+### Set logos (measured 2026-09-24)
+
+Two separate gaps, both of which left the newest sets showing a grey
+placeholder in the set browser:
+
+- **The data omits logos that exist.** 63 of the 220 English sets carry no
+  `logo` key, the 30th Celebration and its Classic Collection among them — yet
+  `assets.tcgdex.net/en/me/30th/logo.png` serves one. Same pattern as card art.
+  So `SetInfo.logoUrls` is produced for every set, and `hasListedLogo` says
+  whether it is a guess (guesses load `speculative`).
+- **The format is not fixed.** The 30th Celebration logo exists only as PNG;
+  `logo.webp` 404s. Most other sets serve both. `logoUrls` offers `.webp` then
+  `.png` and `RemoteIcon(urls:)` takes the first that loads, sequentially —
+  asking for both at once would double the load on a host that already sheds.
+
+30th Classic Collection has no logo in either format: genuinely not uploaded.
 
 **Anniversary reprints print the original's number.** The 30th Classic
 Collection (2026) and Celebrations Classic Collection (2021) reprint famous
@@ -318,6 +360,22 @@ that map when another real product turns up that TCGdex lacks.
 TCGdex sends `rarity: "None"` as a string for cards with no rarity; it is read
 as null. Sets that print no size (30th Classic Collection, official 0) show
 `001`, not `001/0`.
+
+**A brand-new set has no prices at all.** Measured 2026-09-24, a week after
+release: every 30th Celebration and 30th Classic Collection card sampled has
+`pricing.cardmarket` *and* `pricing.tcgplayer` null — TCGdex has not linked the
+set to either marketplace yet. `me01`, from the same 2026 series but older, has
+both. Nothing to fetch and nothing to fix, so `PricePanel` says which set it is
+and that prices follow a few weeks after release, rather than a bare "no
+pricing data" that reads like a bug. It picks itself up on the next refresh.
+
+**Lookup, reprints and Japanese all verified working 2026-09-24** against the
+live API and in the browser: `M6 084/076 AR` → ja:M6-084 グラードン with its
+Cardmarket estimate; `4/102` → Base Set Charizard plus both Classic Collection
+reprints with the stamp banners. Every complaint that looked like "retrieval is
+broken" was missing artwork or missing prices on TCGdex's side — the rows
+themselves resolve. Check the asset host and the `pricing` block before
+touching the resolver.
 
 ## Set catalogue (2026-09-21)
 

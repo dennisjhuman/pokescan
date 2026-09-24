@@ -8,6 +8,10 @@ import 'features/scan/scan_screen.dart';
 
 final _router = GoRouter(
   initialLocation: '/scan',
+  // Nothing is served at "/", but a reload, a bookmark or an Add to Home
+  // Screen launch can land there — and go_router answered that with its
+  // "Page Not Found" screen, which looks like the app is broken.
+  redirect: (_, state) => state.uri.path == '/' ? '/scan' : null,
   routes: [
     StatefulShellRoute.indexedStack(
       builder: (context, state, shell) => _HomeShell(shell: shell),

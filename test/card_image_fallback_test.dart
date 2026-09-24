@@ -50,4 +50,41 @@ void main() {
     const b = CardBrief(id: 'M1S-001', localId: '001', name: 'x', lang: 'ja');
     expect(b.imageUrl(), 'https://assets.tcgdex.net/ja/M/M1S/001/low.webp');
   });
+
+  group('set logos', () {
+    // Measured 2026-09-24 against the live API and asset host:
+    //  * 63 of the 220 English sets carry no `logo` key, the 30th Celebration
+    //    and its Classic Collection among them;
+    //  * `.../me/30th/logo.png` serves that set's logo while `logo.webp` 404s.
+    // Both facts had to be handled or the newest sets showed a grey
+    // placeholder in the set browser.
+    test('both formats are offered, webp first', () {
+      const s = SetInfo(
+          id: '30th', name: '30th Celebration', official: 128, total: 158,
+          serieId: 'me', hasLogo: false);
+      expect(s.logoUrls, [
+        'https://assets.tcgdex.net/en/me/30th/logo.webp',
+        'https://assets.tcgdex.net/en/me/30th/logo.png',
+      ]);
+    });
+
+    test('a set whose data lists no logo is still guessed at', () {
+      const s = SetInfo(id: '30th', name: '30th', official: 128, total: 158,
+          serieId: 'me', hasLogo: false);
+      expect(s.hasListedLogo, isFalse);
+      expect(s.logoUrls, isNotEmpty);
+    });
+
+    test('a listed logo is not speculative', () {
+      const s = SetInfo(id: 'base1', name: 'Base Set', official: 102, total: 102,
+          serieId: 'base', hasLogo: true);
+      expect(s.hasListedLogo, isTrue);
+    });
+
+    test('a Japanese set logo comes from the Japanese asset path', () {
+      const s = SetInfo(id: 'M6', name: 'ストームエメラルダ', lang: 'ja',
+          official: 76, total: 113, serieId: 'M');
+      expect(s.logoUrls.first, 'https://assets.tcgdex.net/ja/M/M6/logo.webp');
+    });
+  });
 }
