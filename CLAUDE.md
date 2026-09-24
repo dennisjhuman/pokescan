@@ -57,9 +57,26 @@ Two targets, same code:
 The Scan tab falls back to manual entry on web via a conditional import, since
 ML Kit is mobile-only and the cropper needs `dart:io`.
 
-Routes are `/scan`, `/collection` and `/card/:id`; nothing is served at `/`,
-and go_router answered a reload or bookmark there with its "Page Not Found"
-screen, which looks like the app is broken. A redirect sends `/` to `/scan`.
+Routes are `/scan`, `/collection`, `/sets`, `/sets/:lang/:id` and `/card/:id`;
+nothing is served at `/`, and go_router answered a reload or bookmark there
+with its "Page Not Found" screen, which looks like the app is broken. A
+redirect sends `/` to `/scan`.
+
+**Browsing sets is a route, not an imperative push** (changed 2026-09-24). It
+used to be a picker: tapping a card in a set's grid popped the grid, popped the
+set list, and only then pushed the card — so both set pages were gone before
+the card opened, and Back from a card landed on the Scan tab rather than on the
+set you were in. `setsPath()` / `setPath(lang, id)` build the routes and
+`test/set_browser_routes_test.dart` pins them. Back now walks card → grid →
+set list → Scan, and a set is deep-linkable (`/#/sets/ja/M4` loads cold).
+
+`SetListPage` and `SetCardsPage` still take an `onPicked` callback, and
+`showSetBrowser` still pushes them imperatively as a picker. That is only for
+the camera flow, which owes its caller a card key so the capture can be tied to
+whichever card the user settles on (`FindCardView.pick`). Anything that just
+wants to show a card pushes the route instead — `onPicked: null` is what tells
+the pages to navigate rather than pop. The picker path is mobile-only, so it is
+not exercised by the web loop.
 
 ### Android toolchain (set up 2026-09-20)
 

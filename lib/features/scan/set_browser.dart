@@ -9,8 +9,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/providers.dart';
+import '../../data/tcgdex/card_key.dart';
 import '../../data/tcgdex/set_catalog.dart';
 import '../../data/tcgdex/set_index_refresher.dart';
 import '../../data/tcgdex/set_info.dart';
@@ -19,23 +21,58 @@ import '../../shared/utils/errors.dart';
 import '../../shared/widgets/card_thumb.dart';
 import '../../shared/widgets/error_banner.dart';
 
-/// Pushes the browser. Returns the chosen card key, or null.
+/// Route to the set list. Browsing is a route rather than an imperative push
+/// so the pages survive navigating on to a card: as a picker, tapping a card
+/// popped the grid *and* the list before pushing the card, so Back from a card
+/// landed on the Scan tab instead of the set you were looking at.
+String setsPath({String query = '', String lang = 'en'}) {
+  final q = <String, String>{
+    if (query.trim().isNotEmpty) 'q': query.trim(),
+    if (lang != 'en') 'lang': lang,
+  };
+  return Uri(path: '/sets', queryParameters: q.isEmpty ? null : q).toString();
+}
+
+/// Route to one set's card grid.
+String setPath(String lang, String id) => '/sets/$lang/${Uri.encodeComponent(id)}';
+
+/// Pushes the browser **as a picker**, returning the chosen card key or null.
+///
+/// Only for callers that need the key back rather than a card page — the scan
+/// flow, which ties the capture to whichever card the user settles on. Anywhere
+/// that just wants to show the card should push [setsPath] instead, so Back
+/// works its way down the stack.
 Future<String?> showSetBrowser(BuildContext context, {String? initialQuery, String lang = 'en'}) =>
     Navigator.of(context).push<String>(
       MaterialPageRoute(
-          builder: (_) => _SetListPage(initialQuery: initialQuery ?? '', initialLang: lang)),
+        builder: (ctx) => SetListPage(
+          initialQuery: initialQuery ?? '',
+          initialLang: lang,
+          onPicked: (key) => Navigator.of(ctx).pop(key),
+        ),
+      ),
     );
 
-class _SetListPage extends ConsumerStatefulWidget {
-  const _SetListPage({required this.initialQuery, required this.initialLang});
+class SetListPage extends ConsumerStatefulWidget {
+  const SetListPage({
+    super.key,
+    this.initialQuery = '',
+    this.initialLang = 'en',
+    this.onPicked,
+  });
+
   final String initialQuery;
   final String initialLang;
 
+  /// Picker mode: hand the chosen card key back instead of navigating.
+  /// Null means this is a route, and the grid pushes the card itself.
+  final ValueChanged<String>? onPicked;
+
   @override
-  ConsumerState<_SetListPage> createState() => _SetListPageState();
+  ConsumerState<SetListPage> createState() => _SetListPageState();
 }
 
-class _SetListPageState extends ConsumerState<_SetListPage> {
+class _SetListPageState extends ConsumerState<SetListPage> {
   late final _query = TextEditingController(text: widget.initialQuery);
   late String _lang = widget.initialLang;
   bool _checking = false;
@@ -135,12 +172,7 @@ class _SetListPageState extends ConsumerState<_SetListPage> {
                       itemCount: sets.length,
                       itemBuilder: (ctx, i) => _SetTile(
                         set: sets[i],
-                        onTap: () async {
-                          final id = await Navigator.of(ctx).push<String>(
-                            MaterialPageRoute(builder: (_) => _SetCardsPage(set: sets[i])),
-                          );
-                          if (id != null && ctx.mounted) Navigator.of(ctx).pop(id);
-                        },
+                        onTap: () => _openSet(ctx, sets[i]),
                       ),
                     ),
                   ),
@@ -148,6 +180,25 @@ class _SetListPageState extends ConsumerState<_SetListPage> {
         ],
       ),
     );
+  }
+
+  /// As a route, push the grid and let Back come back here. As a picker, the
+  /// grid hands its key up and this page pops with it.
+  Future<void> _openSet(BuildContext ctx, SetInfo set) async {
+    final picked = widget.onPicked;
+    if (picked == null) {
+      ctx.push(setPath(set.lang, set.id));
+      return;
+    }
+    final key = await Navigator.of(ctx).push<String>(
+      MaterialPageRoute(
+        builder: (inner) => SetCardsPage(
+          set: set,
+          onPicked: (k) => Navigator.of(inner).pop(k),
+        ),
+      ),
+    );
+    if (key != null && ctx.mounted) picked(key);
   }
 
   static String _ago(DateTime t) {
@@ -224,15 +275,35 @@ class _NewBadge extends StatelessWidget {
       );
 }
 
-class _SetCardsPage extends ConsumerStatefulWidget {
-  const _SetCardsPage({required this.set});
+class SetCardsPage extends ConsumerStatefulWidget {
+  const SetCardsPage({super.key, required this.set, this.onPicked});
   final SetInfo set;
 
+  /// Picker mode, as on [SetListPage]. Null means tapping a card pushes it.
+  final ValueChanged<String>? onPicked;
+
+  /// Builds the page for a route, where all we have is the language and id.
+  /// The set is looked up in the catalogue, which holds the bundle plus
+  /// anything the runtime check has found.
+  static Widget forRoute(String lang, String id) {
+    final set = SetResolver.forLang(lang).byId(id);
+    if (set == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Set')),
+        body: const Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('No set with that code. It may have been renamed on TCGdex.'),
+        ),
+      );
+    }
+    return SetCardsPage(set: set);
+  }
+
   @override
-  ConsumerState<_SetCardsPage> createState() => _SetCardsPageState();
+  ConsumerState<SetCardsPage> createState() => _SetCardsPageState();
 }
 
-class _SetCardsPageState extends ConsumerState<_SetCardsPage> {
+class _SetCardsPageState extends ConsumerState<SetCardsPage> {
   String _filter = '';
 
   @override
@@ -287,7 +358,14 @@ class _SetCardsPageState extends ConsumerState<_SetCardsPage> {
                 name: c.name,
                 // The Classic Collection has no printed set size (official 0).
                 number: widget.set.official > 0 ? '${c.localId}/${widget.set.official}' : c.localId,
-                onTap: () => Navigator.of(context).pop(c.key),
+                onTap: () {
+                  final picked = widget.onPicked;
+                  if (picked != null) {
+                    picked(c.key);
+                  } else {
+                    context.push(cardPath(c.key));
+                  }
+                },
               );
             },
           );

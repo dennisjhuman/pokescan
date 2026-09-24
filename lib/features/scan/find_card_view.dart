@@ -118,9 +118,17 @@ class _FindCardViewState extends ConsumerState<FindCardView> {
     }
   }
 
+  /// Inline (the Scan tab), browsing is a route, so Back from a card returns
+  /// to the set you were in. In a sheet the finder owes its caller a key, so
+  /// the browser stays a picker and hands one back.
   Future<void> _browse({String? query, String? lang}) async {
-    final id = await showSetBrowser(context,
-        initialQuery: query ?? _query.setCode ?? '', lang: lang ?? _query.preferredLang);
+    final q = query ?? _query.setCode ?? '';
+    final l = lang ?? _query.preferredLang;
+    if (widget.onPicked == null) {
+      context.push(setsPath(query: q, lang: l));
+      return;
+    }
+    final id = await showSetBrowser(context, initialQuery: q, lang: l);
     if (id != null && mounted) _pick(id);
   }
 

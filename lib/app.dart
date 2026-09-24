@@ -5,6 +5,7 @@ import 'core/theme.dart';
 import 'features/card_detail/card_detail_screen.dart';
 import 'features/collection/collection_screen.dart';
 import 'features/scan/scan_screen.dart';
+import 'features/scan/set_browser.dart';
 
 final _router = GoRouter(
   initialLocation: '/scan',
@@ -22,6 +23,24 @@ final _router = GoRouter(
         StatefulShellBranch(routes: [
           GoRoute(path: '/collection', builder: (_, _) => const CollectionScreen()),
         ]),
+      ],
+    ),
+    // Browsing sets is a route, not an imperative push, so Back from a card
+    // goes card -> set grid -> set list -> Scan. See set_browser.dart.
+    GoRoute(
+      path: '/sets',
+      builder: (_, state) => SetListPage(
+        initialQuery: state.uri.queryParameters['q'] ?? '',
+        initialLang: state.uri.queryParameters['lang'] ?? 'en',
+      ),
+      routes: [
+        GoRoute(
+          path: ':lang/:id',
+          builder: (_, state) => SetCardsPage.forRoute(
+            state.pathParameters['lang']!,
+            state.pathParameters['id']!,
+          ),
+        ),
       ],
     ),
     GoRoute(
