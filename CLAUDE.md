@@ -354,6 +354,28 @@ placeholder in the set browser:
 
 30th Classic Collection has no logo in either format: genuinely not uploaded.
 
+**Why any of this is missing: `https://assets.tcgdex.net/datas.json`.** The
+source repo is `tcgdex/cards-database` (MIT, active). Set files there declare
+no logo or symbol at all — `data-asia/M/M6.ts` is just id, name, serie,
+cardCount, releaseDate. The API fills `logo`, `symbol` and a card's `image`
+from that 6.4 MB manifest instead (`server/compiler/utils/setUtil.ts`:
+`file[lang][serieId][setId].logo`, `file.univ[serieId][setId].symbol`). It
+also confirms the URL convention we guess at, exactly.
+
+What the manifest says, read 2026-09-24:
+
+- `ja.M` is **absent entirely** — the whole Japanese MEGA series. Hence 0 JP
+  logos and `image: null` on every M-series card.
+- 175 sets *do* declare a symbol, so the API emits symbol URLs for them and the
+  `univ/` bucket 400s on every one. The breakage is server-side, not missing
+  data — which is why writing the bucket off after the first 400 is safe.
+- 160 English sets declare a logo; the 63 without are simply not listed.
+
+The manifest **lags the CDN**: `ja/M/M4/logo.webp` and M4's card art serve 200
+while the manifest knows nothing about the M series. So guessing the URL is not
+a workaround for a missing feature — it is strictly better than believing the
+API here, and it is why M4 shows art and a logo at all.
+
 **Japanese sets never list a logo at all** — 0 of 184, checked 2026-09-24 —
 while the files sometimes exist anyway (`ja/M/M4/logo.webp` serves one). So the
 speculative guess is the *only* thing that can show a Japanese set logo; gating
@@ -382,7 +404,16 @@ matches on name + illustrator + HP + attack names, exact for every pair checked
 (Charizard ↔ base1-4, Crobat G ↔ pl1-47, Magikarp ↔ sv02-203).
 `reprintsOfProvider` adds the reprints to finder results and a "Does yours have
 the stamp?" banner to the original's card page (scans and links skip the
-finder). It matters: Base Set Charizard holo is ~$920; the reprint is not.
+finder).
+
+Confirmed against the source repo 2026-09-24: `data/Mega Evolution/30th
+Classic Collection/001.ts` carries no reference to `base1-4`, so matching on
+the printed facts really is the only link. But the repo does mark the card
+`variants: [{type: 'holo', stamp: ['30th-anniversary'], …}]`, and `stamp` is a
+live API field — `base1-4` returns a variant stamped `1st-edition` today. The
+deployed API has not picked up the 30th-c stamps yet (that card comes back
+`variantId: "generated"`, no stamp, no `thirdParty`). When it does, a
+stamp-based test would beat maintaining `kReprintSets` by hand. It matters: Base Set Charizard holo is ~$920; the reprint is not.
 Add new reprint sets to `kReprintSets`.
 
 **Products TCGdex does not have.** Pokémon Trading Card Game Classic (2023)
@@ -398,8 +429,15 @@ as null. Sets that print no size (30th Classic Collection, official 0) show
 
 **A brand-new set has no prices at all.** Measured 2026-09-24, a week after
 release: every 30th Celebration and 30th Classic Collection card sampled has
-`pricing.cardmarket` *and* `pricing.tcgplayer` null — TCGdex has not linked the
-set to either marketplace yet. `me01`, from the same 2026 series but older, has
+`pricing.cardmarket` *and* `pricing.tcgplayer` null. The source repo *does*
+already carry the marketplace ids for them (`30th-c/001.ts` has cardmarket
+907940, tcgplayer 714372), so this is a price feed that has not run yet rather
+than a set nobody has linked — expect it to fill in sooner than "unlinked"
+would suggest.
+
+This is specific to the 30th sets, not to anniversary reprints in general: the
+Celebrations Classic Collection Charizard (`cel25cc-CC002`) has a Cardmarket
+price of €238 and the app shows it. `me01`, from the same 2026 series but older, has
 both. Nothing to fetch and nothing to fix, so `PricePanel` says which set it is
 and that prices follow a few weeks after release, rather than a bare "no
 pricing data" that reads like a bug. It picks itself up on the next refresh.
