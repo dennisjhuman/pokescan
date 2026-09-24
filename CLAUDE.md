@@ -337,6 +337,24 @@ placeholder in the set browser:
 
 30th Classic Collection has no logo in either format: genuinely not uploaded.
 
+**Japanese sets never list a logo at all** — 0 of 184, checked 2026-09-24 —
+while the files sometimes exist anyway (`ja/M/M4/logo.webp` serves one). So the
+speculative guess is the *only* thing that can show a Japanese set logo; gating
+`logoUrls` on `hasLogo` again would return the Japanese set browser to 184 grey
+placeholders.
+
+Same story one level down, and it splits by era:
+
+| JP sets | `image` in card data | File on the asset host |
+|---|---|---|
+| SV1a, S12a, SM12a (older) | listed for ~every card | yes — ordinary path |
+| M4, M1S (MEGA) | **0 of 120 / 0 of 92** | yes — speculative path only |
+| M1L, M2, M2a, M3, M5, M6, MC, M-P | none | not uploaded |
+
+M4 is the one MEGA set TCGdex has finished; M1S has the art but no logo. The
+rest is upstream backlog and lights up on its own as TCGdex uploads it, since
+the guess is re-tried every session.
+
 **Anniversary reprints print the original's number.** The 30th Classic
 Collection (2026) and Celebrations Classic Collection (2021) reprint famous
 cards with a small stamp but keep the original number — the 30th Charizard
