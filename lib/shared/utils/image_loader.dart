@@ -149,10 +149,11 @@ class ImageLoader {
   Uint8List? cached(String url) => _cache.get(url);
 
   /// [speculative] marks a URL we guessed (the card data listed no image).
-  /// It gets fewer attempts: most guesses that fail are simply absent, and in
-  /// a browser an absent file cannot be told apart from a network error —
-  /// the asset host sends no CORS headers on a 404, so the browser reports a
-  /// failed fetch instead of the status.
+  /// It gets one attempt rather than four: most guesses that fail are simply
+  /// absent, and in a browser an absent file cannot be told apart from a
+  /// network error — the asset host sends no CORS headers on a 404, so the
+  /// browser reports a failed fetch instead of the status. Retrying a guess
+  /// only takes a slot away from art that does exist.
   ImageFetch load(String url, {bool speculative = false}) {
     final hit = _cache.get(url);
     if (hit != null) return Future.value(hit);
@@ -162,7 +163,7 @@ class ImageLoader {
     // returns, and `_pending.remove` hands back the very future being
     // awaited — an arrow body here deadlocks every image in the app.
     return _pending[url] ??=
-        _fetch(url, attempts: speculative ? 2 : maxAttempts).whenComplete(() {
+        _fetch(url, attempts: speculative ? 1 : maxAttempts).whenComplete(() {
       _pending.remove(url);
     });
   }

@@ -28,8 +28,12 @@ class CollectionEntry {
 
   CardVariant get variant => CardVariant.tryParse(item.variant) ?? CardVariant.normal;
 
-  /// Price of one copy in the chosen variant.
-  Price? get unitValue => card?.pricing?.valueFor(variant);
+  /// Which printing was recorded, if the card has several priced apart.
+  CardPrinting? get printing => card?.printings.byKey(item.printingKey);
+
+  /// Price of one copy in the chosen variant, and of the chosen printing when
+  /// one was recorded — a stamped copy is not worth the plain one's price.
+  Price? get unitValue => card?.valueFor(variant, printingKey: item.printingKey);
 
   /// Price × quantity, same currency as [unitValue].
   Price? get totalValue {
@@ -114,6 +118,7 @@ class CollectionRepository {
   Future<int> add({
     required String cardId,
     required CardVariant variant,
+    String? printingKey,
     int quantity = 1,
     String condition = 'NM',
     String? language,
@@ -123,6 +128,7 @@ class CollectionRepository {
       _db.collectionDao.insert(CollectionItemsCompanion.insert(
         cardId: storageKey(cardId),
         variant: variant.name,
+        printingKey: Value(printingKey),
         quantity: Value(quantity),
         condition: Value(condition),
         language: Value(language ?? CardKey.parse(cardId).lang),
@@ -151,6 +157,7 @@ class CollectionRepository {
         CollectionItemsCompanion.insert(
           cardId: item.cardId,
           variant: item.variant,
+          printingKey: Value(item.printingKey),
           quantity: Value(item.quantity),
           condition: Value(item.condition),
           language: Value(item.language),

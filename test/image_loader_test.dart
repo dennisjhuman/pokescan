@@ -167,7 +167,7 @@ void main() {
           reason: 'the tile should offer a retry, not say there is no art');
     });
 
-    test('a guessed URL gets two tries, not four', () async {
+    test('a guessed URL gets one try, not four', () async {
       // In a browser an absent file on the asset host looks like a network
       // error (no CORS headers on its 404), so a guess that fails is almost
       // always simply absent. Four backed-off tries would only waste slots.
@@ -177,7 +177,7 @@ void main() {
         throw const SocketExceptionLike();
       });
       expect(await l.loader.load('https://x/guess', speculative: true), isNull);
-      expect(calls, 2);
+      expect(calls, 1);
     });
 
     test('an empty 200 counts as a failure', () async {

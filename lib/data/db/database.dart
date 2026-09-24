@@ -29,6 +29,12 @@ class CollectionItems extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get cardId => text().references(CardsCache, #id)();
   TextColumn get variant => text()(); // normal | holo | reverse | firstEdition | wPromo
+
+  /// Which *printing* of that variant, when the card has several that are
+  /// priced apart — a GameStop-stamped holo is not a plain holo. Null means
+  /// "not specified", which values the row from the card-level price exactly
+  /// as every row written before schema v4 did. See [CardPrinting.key].
+  TextColumn get printingKey => text().nullable()();
   IntColumn get quantity => integer().withDefault(const Constant(1))();
   TextColumn get condition => text().withDefault(const Constant('NM'))(); // NM LP MP HP DMG
   TextColumn get language => text().withDefault(const Constant('en'))();
@@ -73,7 +79,7 @@ class AppDatabase extends _$AppDatabase {
   // drift/native.dart here would pull dart:ffi into the web build.
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   Future<SetList?> setList(String lang) =>
       (select(setLists)..where((t) => t.lang.equals(lang))).getSingleOrNull();
@@ -97,6 +103,11 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             // Starts empty: the first check after upgrading fills it.
             await m.createTable(setLists);
+          }
+          if (from < 4) {
+            // Null on every existing row, which values them from the
+            // card-level price — what they were already worth.
+            await m.addColumn(collectionItems, collectionItems.printingKey);
           }
         },
         beforeOpen: (details) async {

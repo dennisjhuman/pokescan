@@ -554,6 +554,48 @@ collection_items
   added_at      INTEGER
 ```
 
+### Printings (2026-09-24)
+
+A card is not one product. `variants_detailed` lists each *printing* with its
+own Cardmarket/TCGplayer ids and its own prices, and the card-level `pricing`
+block is only ever one of them — normally the plain one:
+
+| Card | plain | stamped |
+|---|---|---|
+| `swsh12-131` Dragonite | €1.05 | €52.90 GameStop, €56 EB Games |
+| `me01-001` Bulbasaur (reverse) | €0.08 | €5.49 30th PokéDay |
+| `svp-057` Chi-Yu | €3.23 | €41.60 staff |
+| `base1-4` Charizard | €523 unlimited | €4 625 shadowless 1st edition |
+
+So a stamped copy read 10–70× under. `CardPrinting` / `CardPrintings` model
+them; `TcgCard.valueFor(variant, printingKey:)` prices one; the collection
+stores `printingKey` (schema v4, nullable — null values a row exactly as
+before, so nothing already saved moved).
+
+**Only ask when there is something to choose.** Measured over 224 cards across
+every era: 135 have more than one printing, but only **16** have printings
+priced apart. The rest are the ordinary normal/reverse pair, which Cardmarket
+sells as one product at one price — offering a pick there is noise pretending
+to be information. `CardPrintings.pricedSeparately` is that test (distinct
+Cardmarket product ids within one variant), and the picker only appears when it
+returns something.
+
+Stamps seen in that sample: `1st-edition`, `pre-release`, `wotc`, `set-logo`,
+`gamestop`, `eb-games`, `staff`, `pokemon-center`, `snowflake`, `25th-`/
+`30th-` anniversary, `player-rewards-program`, and several illustrator-signed
+ones. Subtypes: `shadowless`, `unlimited`, `1999-2000-copyright`,
+`no-e-reader`, `missing-expansion-symbol`. `CardPrinting._names` spells the
+awkward ones; anything new is title-cased mechanically, so an unknown stamp
+still reads.
+
+TCGdex sends the literal `"generated"` as `variantId` for printings it inferred
+rather than recorded, and it is the same string on every such card — so
+[CardPrinting.key] falls back to describing the printing. Storing `"generated"`
+would collide two rows.
+
+Changing variant clears the chosen printing: a printing belongs to one variant,
+and keeping it would price the row as something it is not.
+
 Card value = price for `variant` from cached pricing: TCGplayer `marketPrice`
 for that variant, then its `midPrice` / `lowPrice`, then Cardmarket
 `trend` → `avg` → `low`. Store nothing computed; derive at read time.
@@ -577,6 +619,18 @@ is `usdTotal`, with anything TCGplayer does not list kept separate as
 - Images are returned as a base URL; append quality + extension
   (e.g. `/high.webp`) — check docs for exact format.
 - No key, no published rate limit. Be polite: cache aggressively, never poll.
+- **`https://api.tcgdex.net/status`** is a completeness matrix per set and
+  language — an HTML page, not an API, but the fastest way to tell "our bug"
+  from "TCGdex hasn't got it yet". Read 2026-09-24:
+
+  | | Card data | Card images |
+  |---|---|---|
+  | English | 99.05% | 91.75% (1 977 missing) |
+  | Japanese | 70.88% | **21.53%** (3 882 of 18 031) |
+
+  TCGdex holds roughly a fifth of Japanese artwork. That, not anything here, is
+  why most Japanese sets show "No artwork yet". Check this page before
+  investigating missing pictures.
 - Verified 2026-09-14 against live API:
   - `pricing.cardmarket`: `unit`, `updated`, `idProduct`, `avg`, `low`, `trend`,
     `avg1`, `avg7`, `avg30`, plus hyphenated holo twins `avg-holo`, `low-holo`,

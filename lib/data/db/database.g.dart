@@ -422,6 +422,17 @@ class $CollectionItemsTable extends CollectionItems
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _printingKeyMeta = const VerificationMeta(
+    'printingKey',
+  );
+  @override
+  late final GeneratedColumn<String> printingKey = GeneratedColumn<String>(
+    'printing_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _quantityMeta = const VerificationMeta(
     'quantity',
   );
@@ -516,6 +527,7 @@ class $CollectionItemsTable extends CollectionItems
     id,
     cardId,
     variant,
+    printingKey,
     quantity,
     condition,
     language,
@@ -555,6 +567,15 @@ class $CollectionItemsTable extends CollectionItems
       );
     } else if (isInserting) {
       context.missing(_variantMeta);
+    }
+    if (data.containsKey('printing_key')) {
+      context.handle(
+        _printingKeyMeta,
+        printingKey.isAcceptableOrUnknown(
+          data['printing_key']!,
+          _printingKeyMeta,
+        ),
+      );
     }
     if (data.containsKey('quantity')) {
       context.handle(
@@ -627,6 +648,10 @@ class $CollectionItemsTable extends CollectionItems
         DriftSqlType.string,
         data['${effectivePrefix}variant'],
       )!,
+      printingKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}printing_key'],
+      ),
       quantity: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}quantity'],
@@ -672,6 +697,12 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
   final int id;
   final String cardId;
   final String variant;
+
+  /// Which *printing* of that variant, when the card has several that are
+  /// priced apart — a GameStop-stamped holo is not a plain holo. Null means
+  /// "not specified", which values the row from the card-level price exactly
+  /// as every row written before schema v4 did. See [CardPrinting.key].
+  final String? printingKey;
   final int quantity;
   final String condition;
   final String language;
@@ -684,6 +715,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
     required this.id,
     required this.cardId,
     required this.variant,
+    this.printingKey,
     required this.quantity,
     required this.condition,
     required this.language,
@@ -699,6 +731,9 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
     map['id'] = Variable<int>(id);
     map['card_id'] = Variable<String>(cardId);
     map['variant'] = Variable<String>(variant);
+    if (!nullToAbsent || printingKey != null) {
+      map['printing_key'] = Variable<String>(printingKey);
+    }
     map['quantity'] = Variable<int>(quantity);
     map['condition'] = Variable<String>(condition);
     map['language'] = Variable<String>(language);
@@ -723,6 +758,9 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
       id: Value(id),
       cardId: Value(cardId),
       variant: Value(variant),
+      printingKey: printingKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(printingKey),
       quantity: Value(quantity),
       condition: Value(condition),
       language: Value(language),
@@ -751,6 +789,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
       id: serializer.fromJson<int>(json['id']),
       cardId: serializer.fromJson<String>(json['cardId']),
       variant: serializer.fromJson<String>(json['variant']),
+      printingKey: serializer.fromJson<String?>(json['printingKey']),
       quantity: serializer.fromJson<int>(json['quantity']),
       condition: serializer.fromJson<String>(json['condition']),
       language: serializer.fromJson<String>(json['language']),
@@ -768,6 +807,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
       'id': serializer.toJson<int>(id),
       'cardId': serializer.toJson<String>(cardId),
       'variant': serializer.toJson<String>(variant),
+      'printingKey': serializer.toJson<String?>(printingKey),
       'quantity': serializer.toJson<int>(quantity),
       'condition': serializer.toJson<String>(condition),
       'language': serializer.toJson<String>(language),
@@ -783,6 +823,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
     int? id,
     String? cardId,
     String? variant,
+    Value<String?> printingKey = const Value.absent(),
     int? quantity,
     String? condition,
     String? language,
@@ -795,6 +836,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
     id: id ?? this.id,
     cardId: cardId ?? this.cardId,
     variant: variant ?? this.variant,
+    printingKey: printingKey.present ? printingKey.value : this.printingKey,
     quantity: quantity ?? this.quantity,
     condition: condition ?? this.condition,
     language: language ?? this.language,
@@ -809,6 +851,9 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
       id: data.id.present ? data.id.value : this.id,
       cardId: data.cardId.present ? data.cardId.value : this.cardId,
       variant: data.variant.present ? data.variant.value : this.variant,
+      printingKey: data.printingKey.present
+          ? data.printingKey.value
+          : this.printingKey,
       quantity: data.quantity.present ? data.quantity.value : this.quantity,
       condition: data.condition.present ? data.condition.value : this.condition,
       language: data.language.present ? data.language.value : this.language,
@@ -828,6 +873,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
           ..write('id: $id, ')
           ..write('cardId: $cardId, ')
           ..write('variant: $variant, ')
+          ..write('printingKey: $printingKey, ')
           ..write('quantity: $quantity, ')
           ..write('condition: $condition, ')
           ..write('language: $language, ')
@@ -845,6 +891,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
     id,
     cardId,
     variant,
+    printingKey,
     quantity,
     condition,
     language,
@@ -861,6 +908,7 @@ class CollectionItem extends DataClass implements Insertable<CollectionItem> {
           other.id == this.id &&
           other.cardId == this.cardId &&
           other.variant == this.variant &&
+          other.printingKey == this.printingKey &&
           other.quantity == this.quantity &&
           other.condition == this.condition &&
           other.language == this.language &&
@@ -875,6 +923,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
   final Value<int> id;
   final Value<String> cardId;
   final Value<String> variant;
+  final Value<String?> printingKey;
   final Value<int> quantity;
   final Value<String> condition;
   final Value<String> language;
@@ -887,6 +936,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
     this.id = const Value.absent(),
     this.cardId = const Value.absent(),
     this.variant = const Value.absent(),
+    this.printingKey = const Value.absent(),
     this.quantity = const Value.absent(),
     this.condition = const Value.absent(),
     this.language = const Value.absent(),
@@ -900,6 +950,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
     this.id = const Value.absent(),
     required String cardId,
     required String variant,
+    this.printingKey = const Value.absent(),
     this.quantity = const Value.absent(),
     this.condition = const Value.absent(),
     this.language = const Value.absent(),
@@ -915,6 +966,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
     Expression<int>? id,
     Expression<String>? cardId,
     Expression<String>? variant,
+    Expression<String>? printingKey,
     Expression<int>? quantity,
     Expression<String>? condition,
     Expression<String>? language,
@@ -928,6 +980,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
       if (id != null) 'id': id,
       if (cardId != null) 'card_id': cardId,
       if (variant != null) 'variant': variant,
+      if (printingKey != null) 'printing_key': printingKey,
       if (quantity != null) 'quantity': quantity,
       if (condition != null) 'condition': condition,
       if (language != null) 'language': language,
@@ -943,6 +996,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
     Value<int>? id,
     Value<String>? cardId,
     Value<String>? variant,
+    Value<String?>? printingKey,
     Value<int>? quantity,
     Value<String>? condition,
     Value<String>? language,
@@ -956,6 +1010,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
       id: id ?? this.id,
       cardId: cardId ?? this.cardId,
       variant: variant ?? this.variant,
+      printingKey: printingKey ?? this.printingKey,
       quantity: quantity ?? this.quantity,
       condition: condition ?? this.condition,
       language: language ?? this.language,
@@ -978,6 +1033,9 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
     }
     if (variant.present) {
       map['variant'] = Variable<String>(variant.value);
+    }
+    if (printingKey.present) {
+      map['printing_key'] = Variable<String>(printingKey.value);
     }
     if (quantity.present) {
       map['quantity'] = Variable<int>(quantity.value);
@@ -1012,6 +1070,7 @@ class CollectionItemsCompanion extends UpdateCompanion<CollectionItem> {
           ..write('id: $id, ')
           ..write('cardId: $cardId, ')
           ..write('variant: $variant, ')
+          ..write('printingKey: $printingKey, ')
           ..write('quantity: $quantity, ')
           ..write('condition: $condition, ')
           ..write('language: $language, ')
@@ -1620,6 +1679,7 @@ typedef $$CollectionItemsTableCreateCompanionBuilder =
       Value<int> id,
       required String cardId,
       required String variant,
+      Value<String?> printingKey,
       Value<int> quantity,
       Value<String> condition,
       Value<String> language,
@@ -1634,6 +1694,7 @@ typedef $$CollectionItemsTableUpdateCompanionBuilder =
       Value<int> id,
       Value<String> cardId,
       Value<String> variant,
+      Value<String?> printingKey,
       Value<int> quantity,
       Value<String> condition,
       Value<String> language,
@@ -1687,6 +1748,11 @@ class $$CollectionItemsTableFilterComposer
 
   ColumnFilters<String> get variant => $composableBuilder(
     column: $table.variant,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get printingKey => $composableBuilder(
+    column: $table.printingKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1773,6 +1839,11 @@ class $$CollectionItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get printingKey => $composableBuilder(
+    column: $table.printingKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get quantity => $composableBuilder(
     column: $table.quantity,
     builder: (column) => ColumnOrderings(column),
@@ -1851,6 +1922,11 @@ class $$CollectionItemsTableAnnotationComposer
 
   GeneratedColumn<String> get variant =>
       $composableBuilder(column: $table.variant, builder: (column) => column);
+
+  GeneratedColumn<String> get printingKey => $composableBuilder(
+    column: $table.printingKey,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get quantity =>
       $composableBuilder(column: $table.quantity, builder: (column) => column);
@@ -1935,6 +2011,7 @@ class $$CollectionItemsTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> cardId = const Value.absent(),
                 Value<String> variant = const Value.absent(),
+                Value<String?> printingKey = const Value.absent(),
                 Value<int> quantity = const Value.absent(),
                 Value<String> condition = const Value.absent(),
                 Value<String> language = const Value.absent(),
@@ -1947,6 +2024,7 @@ class $$CollectionItemsTableTableManager
                 id: id,
                 cardId: cardId,
                 variant: variant,
+                printingKey: printingKey,
                 quantity: quantity,
                 condition: condition,
                 language: language,
@@ -1961,6 +2039,7 @@ class $$CollectionItemsTableTableManager
                 Value<int> id = const Value.absent(),
                 required String cardId,
                 required String variant,
+                Value<String?> printingKey = const Value.absent(),
                 Value<int> quantity = const Value.absent(),
                 Value<String> condition = const Value.absent(),
                 Value<String> language = const Value.absent(),
@@ -1973,6 +2052,7 @@ class $$CollectionItemsTableTableManager
                 id: id,
                 cardId: cardId,
                 variant: variant,
+                printingKey: printingKey,
                 quantity: quantity,
                 condition: condition,
                 language: language,

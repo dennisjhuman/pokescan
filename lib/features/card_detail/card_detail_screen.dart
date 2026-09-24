@@ -31,6 +31,10 @@ class CardDetailScreen extends ConsumerStatefulWidget {
 class _CardDetailScreenState extends ConsumerState<CardDetailScreen> {
   CardVariant? _variant;
 
+  /// Chosen printing, when the card has several that are priced apart.
+  /// Null values the card at the card-level price, as it always did.
+  String? _printingKey;
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(cardProvider(widget.cardId));
@@ -40,12 +44,18 @@ class _CardDetailScreenState extends ConsumerState<CardDetailScreen> {
     final lastScan = ref.watch(lastScanProvider);
     final scan = lastScan?.resolvedCardId == widget.cardId ? lastScan : null;
     final variant = _variant ?? card?.variants.defaultVariant ?? CardVariant.normal;
+    // A printing only means something for the variant it belongs to, so
+    // switching variant drops it rather than quietly pricing the wrong thing.
+    final printings = card?.printings.pricedSeparately(variant) ?? const [];
+    final printingKey =
+        printings.any((p) => p.key == _printingKey) ? _printingKey : null;
     return Scaffold(
       appBar: AppBar(title: Text(card?.name ?? widget.cardId)),
       floatingActionButton: card == null
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => showAddToCollectionSheet(context, card: card, variant: variant),
+              onPressed: () => showAddToCollectionSheet(context,
+                  card: card, variant: variant, printingKey: printingKey),
               icon: const Icon(Icons.add),
               label: Text(owned.isEmpty ? 'Add to collection' : 'Add another'),
             ),
@@ -66,9 +76,15 @@ class _CardDetailScreenState extends ConsumerState<CardDetailScreen> {
           child: _Body(
             card: card,
             variant: variant,
+            printings: printings,
+            printingKey: printingKey,
             owned: owned,
             scan: scan,
-            onVariant: (v) => setState(() => _variant = v),
+            onVariant: (v) => setState(() {
+              _variant = v;
+              _printingKey = null;
+            }),
+            onPrinting: (k) => setState(() => _printingKey = k),
           ),
         ),
       ),
@@ -80,15 +96,21 @@ class _Body extends ConsumerWidget {
   const _Body({
     required this.card,
     required this.variant,
+    required this.printings,
+    required this.printingKey,
     required this.owned,
     required this.scan,
     required this.onVariant,
+    required this.onPrinting,
   });
   final TcgCard card;
   final CardVariant variant;
+  final List<CardPrinting> printings;
+  final String? printingKey;
   final List<CollectionItem> owned;
   final ScanOutcome? scan;
   final ValueChanged<CardVariant> onVariant;
+  final ValueChanged<String?> onPrinting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -105,8 +127,15 @@ class _Body extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.check_circle, color: Colors.green),
               title: Text(
-                '${(CardVariant.tryParse(it.variant) ?? CardVariant.normal).label}'
-                ' · ${it.condition}${it.quantity > 1 ? ' · ×${it.quantity}' : ''}',
+                [
+                  (CardVariant.tryParse(it.variant) ?? CardVariant.normal).label,
+                  // Naming the printing matters here: two rows for the same
+                  // card are otherwise identical on screen while being worth
+                  // very different amounts.
+                  ?card.printings.byKey(it.printingKey)?.printingLabel,
+                  it.condition,
+                  if (it.quantity > 1) '×${it.quantity}',
+                ].join(' · '),
               ),
               subtitle: it.notes == null ? null : Text(it.notes!),
               trailing: Row(
@@ -180,9 +209,17 @@ class _Body extends ConsumerWidget {
           selected: variant,
           onChanged: onVariant,
         ),
+        if (printings.length > 1) ...[
+          const SizedBox(height: 16),
+          PrintingPicker(
+            printings: printings,
+            selectedKey: printingKey,
+            onChanged: onPrinting,
+          ),
+        ],
         const SizedBox(height: 16),
         _PriceSince(cardId: card.id, card: card, variant: variant),
-        _prices(card, variant),
+        _prices(card, variant, printingKey),
         const SizedBox(height: 24),
         _SignalsSection(card: card, scan: scan),
         const SizedBox(height: 24),
@@ -211,10 +248,13 @@ class _Body extends ConsumerWidget {
   /// the panel says so rather than showing a bare "no pricing data". The set
   /// is looked up in the card's own catalogue, so a Japanese card is matched
   /// against the Japanese sets.
-  Widget _prices(TcgCard card, CardVariant variant) {
+  Widget _prices(TcgCard card, CardVariant variant, String? printingKey) {
     final set = SetResolver.forLang(CardKey.parse(card.key).lang).byId(card.set.id);
+    final printing = card.printings.byKey(printingKey);
     return PricePanel(
-      pricing: card.pricing,
+      // A chosen printing prices itself; otherwise the card-level block.
+      pricing: printing?.pricing ?? card.pricing,
+      printingLabel: printing?.printingLabel,
       variant: variant,
       setName: set?.name ?? card.set.name,
       setIsRecent: set?.isRecent(days: 90) ?? false,

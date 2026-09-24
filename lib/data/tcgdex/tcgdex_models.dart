@@ -217,6 +217,177 @@ class CardPricing {
   }
 }
 
+/// One printing of a card, from `variants_detailed`.
+///
+/// A card is not one product. `swsh12-131` Dragonite exists as a plain holo
+/// (€1.05), a GameStop-stamped holo (€52.90) and an EB Games one (€56); the
+/// 30th PokéDay stamp on `me01-001` is €5.49 against €0.08 for the ordinary
+/// reverse. Cardmarket lists each of those separately, and TCGdex now hands
+/// them over with their own `thirdParty` ids and their own prices — where the
+/// card-level `pricing` block is only ever *one* of them, normally the plain
+/// one. Showing that for a stamped card understates it by 10–70×.
+///
+/// Measured over 224 cards spanning every era (2026-09-24): 135 have more than
+/// one printing, but only 16 have printings that are *priced* differently. The
+/// rest are the ordinary normal/reverse pair, which Cardmarket sells as a
+/// single product — so the picker only appears for the 16, and the common card
+/// is untouched. See [CardPrintings.pricedSeparately].
+class CardPrinting {
+  const CardPrinting({
+    required this.type,
+    this.variantId,
+    this.subtype,
+    this.size,
+    this.stamp = const [],
+    this.pricing,
+    this.cardmarketProductId,
+    this.tcgplayerProductId,
+  });
+
+  /// Which of our five variants this printing is.
+  final CardVariant type;
+
+  /// TCGdex's own id for the printing. Stable, and what the collection stores
+  /// — except that TCGdex sends the literal `"generated"` for printings it
+  /// inferred rather than recorded, which is not unique, hence [key].
+  final String? variantId;
+
+  /// Printing detail: `shadowless`, `unlimited`, `1999-2000-copyright`.
+  final String? subtype;
+
+  /// `standard` or `jumbo`.
+  final String? size;
+
+  /// What is stamped on the card: `1st-edition`, `gamestop`, `staff`,
+  /// `30th-anniversary`. The main reason two printings differ in price.
+  final List<String> stamp;
+
+  /// This printing's own prices. Null for printings nobody lists.
+  final CardPricing? pricing;
+
+  final int? cardmarketProductId;
+  final int? tcgplayerProductId;
+
+  /// Stable identity for the collection. Prefers TCGdex's id and falls back to
+  /// what the printing *is*, because `"generated"` is not an identity.
+  String get key => (variantId == null || variantId == 'generated')
+      ? [type.name, ?subtype, ...stamp].join('+')
+      : variantId!;
+
+  /// What to call it: "Holo", "Holo · GameStop stamp", "Holo · Shadowless,
+  /// 1st Edition stamp".
+  String get label {
+    final bits = [
+      if (subtype != null) _humanise(subtype!),
+      if (stamp.isNotEmpty) '${stamp.map(_humanise).join(', ')} stamp',
+    ];
+    return bits.isEmpty ? type.label : '${type.label} · ${bits.join(', ')}';
+  }
+
+  /// Distinguishing part only, for a picker where the variant is already shown.
+  String get printingLabel {
+    final bits = [
+      if (subtype != null) _humanise(subtype!),
+      if (stamp.isNotEmpty) '${stamp.map(_humanise).join(', ')} stamp',
+    ];
+    return bits.isEmpty ? 'Plain' : bits.join(', ');
+  }
+
+  /// This printing's value, falling back to nothing — the caller decides
+  /// whether to drop back to the card-level block.
+  Price? get value => pricing?.valueFor(type);
+
+  /// TCGdex writes these kebab-case. A few read badly title-cased, so they are
+  /// named; the rest are mechanical.
+  static const _names = {
+    '1st-edition': '1st Edition',
+    'wotc': 'WotC',
+    'eb-games': 'EB Games',
+    'gamestop': 'GameStop',
+    'pokemon-center': 'Pokémon Center',
+    'set-logo': 'Set logo',
+    '25th-celebration': '25th Celebration',
+    '30th-anniversary': '30th Anniversary',
+    '30th-pokeday': '30th PokéDay',
+    '1999-2000-copyright': '1999–2000 copyright',
+    '1999-copyright': '1999 copyright',
+    'no-e-reader': 'No e-Reader',
+    'player-rewards-program': 'Player Rewards',
+    'pre-release': 'Prerelease',
+  };
+
+  static String _humanise(String raw) =>
+      _names[raw] ??
+      raw
+          .split('-')
+          .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
+
+  factory CardPrinting.fromJson(Map<String, dynamic> j) {
+    final third = j['thirdParty'] is Map<String, dynamic>
+        ? j['thirdParty'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return CardPrinting(
+      type: CardVariant.tryParse(_typeKey(j['type'])) ?? CardVariant.normal,
+      variantId: j['variantId'] as String?,
+      subtype: j['subtype'] as String?,
+      size: j['size'] as String?,
+      stamp: [for (final s in (j['stamp'] as List?) ?? const []) s.toString()],
+      pricing: j['pricing'] is Map<String, dynamic>
+          ? CardPricing.fromJson(j['pricing'] as Map<String, dynamic>)
+          : null,
+      cardmarketProductId: (third['cardmarket'] as num?)?.toInt(),
+      tcgplayerProductId: (third['tcgplayer'] as num?)?.toInt(),
+    );
+  }
+
+  /// `variants_detailed` uses the same words as `variants` except for the
+  /// hyphenated ones.
+  static String _typeKey(Object? raw) => switch (raw?.toString()) {
+        '1st-edition' || 'firstEdition' => 'firstEdition',
+        'w-promo' || 'wPromo' => 'wPromo',
+        final s? => s,
+        _ => 'normal',
+      };
+}
+
+/// A card's printings, and the question the UI actually asks of them.
+class CardPrintings {
+  const CardPrintings(this.all);
+
+  final List<CardPrinting> all;
+
+  static const empty = CardPrintings([]);
+
+  factory CardPrintings.fromJson(Object? raw) => CardPrintings([
+        for (final e in (raw as List?) ?? const [])
+          if (e is Map<String, dynamic>) CardPrinting.fromJson(e),
+      ]);
+
+  List<CardPrinting> forVariant(CardVariant v) => [for (final p in all) if (p.type == v) p];
+
+  /// The printings of [v] that are genuinely priced apart, or empty when there
+  /// is nothing to choose between.
+  ///
+  /// "Priced apart" means distinct Cardmarket products: an ordinary card's
+  /// normal and reverse printings share one product and one price, so offering
+  /// a choice there would be noise pretending to be information.
+  List<CardPrinting> pricedSeparately(CardVariant v) {
+    final mine = forVariant(v);
+    if (mine.length < 2) return const [];
+    final products = {for (final p in mine) p.cardmarketProductId}..remove(null);
+    return products.length < 2 ? const [] : mine;
+  }
+
+  CardPrinting? byKey(String? key) {
+    if (key == null) return null;
+    for (final p in all) {
+      if (p.key == key) return p;
+    }
+    return null;
+  }
+}
+
 /// Which variants exist for a card.
 class CardVariants {
   const CardVariants({
@@ -353,6 +524,7 @@ class TcgCard {
     required this.name,
     required this.set,
     required this.variants,
+    this.printings = CardPrintings.empty,
     this.image,
     this.category,
     this.rarity,
@@ -380,6 +552,11 @@ class TcgCard {
   final String name;
   final SetBrief set;
   final CardVariants variants;
+
+  /// The card's individual printings, each with its own price. See
+  /// [CardPrinting] — a stamped copy can be worth many times the plain one.
+  final CardPrintings printings;
+
   final String? image;
   final String? category;
   final String? rarity;
@@ -393,12 +570,19 @@ class TcgCard {
   final String? updated;
   final CardPricing? pricing;
 
+  /// Value of one copy, for [variant] and optionally a particular
+  /// [printingKey]. A printing's own prices win when it has them; otherwise
+  /// this is exactly what it always was, the card-level block.
+  Price? valueFor(CardVariant variant, {String? printingKey}) =>
+      printings.byKey(printingKey)?.value ?? pricing?.valueFor(variant);
+
   factory TcgCard.fromJson(Map<String, dynamic> j, {String lang = CardKey.defaultLang}) => TcgCard(
         id: j['id'] as String,
         lang: lang,
         localId: j['localId']?.toString() ?? '',
         name: j['name'] as String? ?? '',
         set: SetBrief.fromJson(j['set'] as Map<String, dynamic>),
+        printings: CardPrintings.fromJson(j['variants_detailed']),
         variants: j['variants'] is Map<String, dynamic>
             ? CardVariants.fromJson(j['variants'] as Map<String, dynamic>)
             : const CardVariants(normal: true),

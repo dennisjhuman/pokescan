@@ -223,8 +223,16 @@ class _EntryTile extends ConsumerWidget {
         title: Text(c?.name ?? entry.item.cardId),
         subtitle: Text(
           '${c?.set.name ?? ''}\n'
-          '${c?.numberLabel ?? ''} · ${entry.variant.label} · ${entry.item.condition}'
-          '${entry.item.quantity > 1 ? ' · ×${entry.item.quantity}' : ''}',
+          // The printing belongs here for the same reason it does on the card
+          // page: two rows for the same card are otherwise identical on screen
+          // while being worth very different amounts.
+          '${[
+            ?c?.numberLabel,
+            entry.variant.label,
+            ?entry.printing?.printingLabel,
+            entry.item.condition,
+            if (entry.item.quantity > 1) '×${entry.item.quantity}',
+          ].join(' · ')}',
         ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,

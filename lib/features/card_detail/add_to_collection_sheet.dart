@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/db/database.dart';
 import '../../data/providers.dart';
 import '../../data/tcgdex/tcgdex_models.dart';
+import 'variant_picker.dart';
 
 const kConditions = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 
@@ -13,6 +14,7 @@ Future<void> showAddToCollectionSheet(
   BuildContext context, {
   required TcgCard card,
   required CardVariant variant,
+  String? printingKey,
   CollectionItem? existing,
 }) =>
     showModalBottomSheet(
@@ -20,14 +22,17 @@ Future<void> showAddToCollectionSheet(
       isScrollControlled: true,
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(ctx).bottom + 16),
-        child: _AddForm(card: card, variant: variant, existing: existing),
+        child: _AddForm(
+            card: card, variant: variant, printingKey: printingKey, existing: existing),
       ),
     );
 
 class _AddForm extends ConsumerStatefulWidget {
-  const _AddForm({required this.card, required this.variant, this.existing});
+  const _AddForm(
+      {required this.card, required this.variant, this.printingKey, this.existing});
   final TcgCard card;
   final CardVariant variant;
+  final String? printingKey;
   final CollectionItem? existing;
 
   @override
@@ -38,7 +43,12 @@ class _AddFormState extends ConsumerState<_AddForm> {
   late CardVariant _variant = widget.existing == null
       ? widget.variant
       : (CardVariant.tryParse(widget.existing!.variant) ?? widget.variant);
+  late String? _printingKey = widget.existing?.printingKey ?? widget.printingKey;
   late int _qty = widget.existing?.quantity ?? 1;
+
+  /// Printings of the chosen variant that are priced apart, or none.
+  List<CardPrinting> get _printings => widget.card.printings.pricedSeparately(_variant);
+
   late String _condition = widget.existing?.condition ?? 'NM';
   late final _notes = TextEditingController(text: widget.existing?.notes ?? '');
   late final _paid = TextEditingController(
@@ -60,6 +70,7 @@ class _AddFormState extends ConsumerState<_AddForm> {
       await repo.add(
         cardId: widget.card.key,
         variant: _variant,
+        printingKey: _printingKey,
         quantity: _qty,
         condition: _condition,
         notes: notes,
@@ -68,6 +79,7 @@ class _AddFormState extends ConsumerState<_AddForm> {
     } else {
       await repo.update(ex.copyWith(
         variant: _variant.name,
+        printingKey: Value(_printingKey),
         quantity: _qty,
         condition: _condition,
         notes: Value(notes),
@@ -97,10 +109,23 @@ class _AddFormState extends ConsumerState<_AddForm> {
                 ChoiceChip(
                   label: Text(v.label),
                   selected: v == _variant,
-                  onSelected: (_) => setState(() => _variant = v),
+                  // The printing belongs to the old variant; keeping it would
+                  // price the row as something it is not.
+                  onSelected: (_) => setState(() {
+                    _variant = v;
+                    _printingKey = null;
+                  }),
                 ),
             ],
           ),
+        if (_printings.length > 1) ...[
+          const SizedBox(height: 12),
+          PrintingPicker(
+            printings: _printings,
+            selectedKey: _printingKey,
+            onChanged: (k) => setState(() => _printingKey = k),
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [

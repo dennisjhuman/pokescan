@@ -162,10 +162,24 @@ class SetInfo {
   ///    webp first because it is smaller.
   ///
   /// A guess that is wrong is a 404, which [ImageLoader] treats as final.
+  ///
+  /// **Guessing is rationed.** Guessing for every set cost two requests each
+  /// for the ~250 sets that have no logo — 500 doomed requests through a
+  /// five-slot image loader, which starved card art and made the app look
+  /// hung. The gap is a *new-set* phenomenon: the file lands on the CDN before
+  /// the data points at it. A 2003 set with no logo has no logo. So a set
+  /// whose data lists one is fetched as always, and only a recent set is
+  /// guessed at.
   List<String> get logoUrls {
+    if (!hasLogo && !_worthGuessing) return const [];
     final base = 'https://assets.tcgdex.net/$lang/$seriePath/$id/logo';
     return ['$base.webp', '$base.png'];
   }
+
+  /// Released — or first seen — inside the last year and a half, which covers
+  /// every case measured (JP M4 and M1S, the two 30th sets) with room for
+  /// TCGdex to be slow.
+  bool get _worthGuessing => isRecent(days: 550);
 
   /// True when the set data named a logo; false means [logoUrls] is a guess
   /// and should be loaded speculatively (fewer attempts, no retry offer).

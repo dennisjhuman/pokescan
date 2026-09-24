@@ -19,12 +19,18 @@ class PricePanel extends StatelessWidget {
     super.key,
     required this.pricing,
     required this.variant,
+    this.printingLabel,
     this.setName,
     this.setIsRecent = false,
   });
 
   final CardPricing? pricing;
   final CardVariant variant;
+
+  /// Names the printing these figures belong to, when one was chosen. Without
+  /// it a stamped card's price looks like the plain card's and there is
+  /// nothing on screen to say otherwise.
+  final String? printingLabel;
 
   /// Named only so the empty state can say *which* set has no prices yet.
   final String? setName;
@@ -74,7 +80,9 @@ class PricePanel extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    '${variant.label} · ${value.source}'
+                    '${variant.label}'
+                    '${printingLabel == null ? '' : ' · $printingLabel'}'
+                    ' · ${value.source}'
                     '${value.estimate ? ' · estimate' : ''}',
                     style: text.bodySmall,
                   ),
